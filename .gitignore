@@ -1,0 +1,6 @@
+*.zip
+__pycache__
+import_to_valkimia
+new_customer
+_*
+processed
