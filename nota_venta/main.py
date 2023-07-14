@@ -129,7 +129,12 @@ def read_excel_columns(file_path):
 def move_to_processed(file_path):
     filename = os.path.basename(file_path)
     
-    os.rename(file_path, f'{cnf.processed_path}\{filename}')
+    try:
+        os.rename(file_path, f'{cnf.processed_path}\{filename}')
+    except FileExistsError:
+        os.remove(f'{cnf.processed_path}\{filename}')
+        os.rename(file_path, f'{cnf.processed_path}\{filename}')
+    
 
 
 def customer_array_management( cliente_id,  nombre, direccion, ciudad, codigo_postal, tipo, documento):
