@@ -159,7 +159,7 @@ def write_csv(f):
     filename = os.path.basename(f)
     
     salida = f"{cnf.import_path}\{os.path.splitext(filename)[0]}.csv"
-    with codecs.open(salida, 'w','ansi') as archivo_csv:
+    with codecs.open(salida, 'w','utf8') as archivo_csv:
         writer = csv.writer(archivo_csv, delimiter=';')
         titulo = [ 'Nro Documento',
                   'Fecha',
