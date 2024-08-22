@@ -8,6 +8,7 @@ import db
 import traceback
 
 
+
 class FileFormatError(Exception):
     pass
 #
@@ -91,7 +92,9 @@ def read_excel_columns(file_path):
                    sheet['U'],  #SKU
                    sheet['V'], # Descripcion
                    sheet['W'],  #Cantidad
-                   sheet['B'] # Tipo
+                   sheet['B'], # Tipo
+                   sheet['AB'], # Observacion
+                   sheet['H']  # CP
                    )):
         reg = {}
         reg['nombre'] = row[0].value
@@ -105,6 +108,8 @@ def read_excel_columns(file_path):
         reg['descripcion'] = row[8].value
         reg['cantidad'] = row[9].value
         reg['tipo'] = row[10].value
+        reg['observacion'] = row[11].value
+        reg['codigo_postal'] = row[12].value
         #print(f"type: {type(reg['sku'])} valor: {reg['sku']}")
         if id == 0 and not reg['nombre'] == 'Razon Social':
             raise FileFormatError('error de formato')
@@ -124,15 +129,40 @@ def read_excel_columns(file_path):
 def move_to_processed(file_path):
     filename = os.path.basename(file_path)
     
-    os.rename(file_path, f'{cnf.processed_path}\{filename}')
+    try:
+        os.rename(file_path, f'{cnf.processed_path}\{filename}')
+    except FileExistsError:
+        os.remove(f'{cnf.processed_path}\{filename}')
+        os.rename(file_path, f'{cnf.processed_path}\{filename}')
+    
 
+
+def customer_array_management( cliente_id,  nombre, direccion, ciudad, codigo_postal, tipo, documento, observacion, provincia):
+    encontrado = False
+    for c in new_customers:
+        if (cliente_id == c['cliente_id']):
+            encontrado = True
+            break
+    
+    if not encontrado:
+        new_customers.append({'cliente_id': cliente_id,
+                            'nombre': nombre,
+                            'direccion': direccion,
+                            'localidad': ciudad,
+                            'codigo_postal': codigo_postal,
+                            'tipo': tipo,
+                            'numero_documento': documento,
+                            'observacion': observacion,
+                            'provincia': provincia}
+                            )
+            
 def write_csv(f):
     excel = read_excel_columns(f)
      
     filename = os.path.basename(f)
     
     salida = f"{cnf.import_path}\{os.path.splitext(filename)[0]}.csv"
-    with codecs.open(salida, 'w','ansi') as archivo_csv:
+    with codecs.open(salida, 'w','utf8') as archivo_csv:
         writer = csv.writer(archivo_csv, delimiter=';')
         titulo = [ 'Nro Documento',
                   'Fecha',
@@ -152,43 +182,55 @@ def write_csv(f):
         writer.writerow(titulo)
         for fila in excel:
             entidad_id = None
-            entidad_id = db.getENT(fila['documento'])
+            entidad_id = db.getENT(fila['documento'], fila['provincia'],
+                                   fila['codigo_postal'], fila['direccion'])
             
             if entidad_id is None:
                 
-               
-                new_customers.append({'cliente_id': fila['documento'],
-                                    'nombre': fila['nombre'],
-                                    'direccion': fila['direccion'],
-                                    'localidad': fila['ciudad'],
-                                    'codigo_postal': 'CP N/D',
-                                    'tipo': fila['tipo'],
-                                    'numero_documento': fila['documento']})
+                customer_array_management(fila['documento'],
+                                          fila['nombre'],
+                                          fila['direccion'],
+                                          fila['ciudad'],
+                                          fila['codigo_postal'],
+                                          fila['tipo'] if fila['tipo'] is not None else '',
+                                          fila['documento'],
+                                          fila['observacion'] if fila['observacion'] is not None else '',
+                                          fila['provincia']
+                                          )
+                # new_customers.append({'cliente_id': fila['documento'],
+                #                     'nombre': fila['nombre'],
+                #                     'direccion': fila['direccion'],
+                #                     'localidad': fila['ciudad'],
+                #                     'codigo_postal': '1',
+                #                     'tipo': fila['tipo'],
+                #                     'numero_documento': fila['documento']})
             
-            r = [fila['documento'],
-                  fila['fecha'],
-                  fila['documento'] ,
-                 fila['nombre'],
-                 fila['sku'],
-                 'FP',
-                 fila['descripcion'],
-                 fila['cantidad'],
-                 'Lote',
-                 fila['numero_factura'],
-                 'Obs2',
-                 'Obs3',
-                 'Obs4',
-                 fila['direccion'],
-                 fila['ciudad']
+            r = [fila['numero_factura'],    #1
+                  fila['fecha'],            #2
+                  fila['documento'] ,       #3
+                 fila['nombre'],            #4
+                 fila['sku'],               #5
+                 '1',                       #6
+                 '',                        #7
+                 fila['cantidad'],          #8
+                 '',
+                 fila['observacion'],
+                 '',
+                 '',
+                 '',
+                 '',
+                 ''
                  ]
             writer.writerow(r)
     
 def write_new_customers(data, f):
     filename = os.path.basename(f)
-    salida = f"{cnf.new_customer_path}\\new_customer_{os.path.splitext(filename)[0]}.csv"
+    salida = f"{cnf.new_customer_path}/new_customer_{os.path.splitext(filename)[0]}.csv"
     with codecs.open(salida, 'w','ansi') as archivo_csv:
         writer = csv.writer(archivo_csv, delimiter=';')
-
+        titulo=[1,2,3,4,5,6,7]
+      
+        writer.writerow(titulo)
         for d in data:
             r= [d['cliente_id'],
                 d['nombre'],
@@ -200,6 +242,8 @@ def write_new_customers(data, f):
                 ]
             
             writer.writerow(r)
+
+            db.generate_insert_query(d)
         
 timestamp_inicio = datetime.now()
 print(f"Inicio del proceso: {timestamp_inicio}")
@@ -207,17 +251,19 @@ print(f"Inicio del proceso: {timestamp_inicio}")
 cnf = config.Config()
 try:
     masters = read_master(cnf.master)
-    new_customers = []
+    
     files = read_files(cnf.getPath())
 
     db = db.DB()
 
     for i, f in enumerate(files):
+        new_customers = []
         try:
             print (f"Procesando archivo: {f}")
             write_csv(f)
             if len(new_customers) > 0:
                 write_new_customers(new_customers, f)
+                
             move_to_processed(f)
         except FileFormatError as e:
             print(f"ERROR: procesando archivo {f} es un problema {e}")
