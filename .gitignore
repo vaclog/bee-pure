@@ -4,3 +4,10 @@ import_to_valkimia
 new_customer
 _*
 processed
+
+.env
+.env.prod
+
+*.xls
+*.csv
+*.xlsx
