@@ -183,7 +183,7 @@ def write_csv(f):
         for fila in excel:
             entidad_id = None
             entidad_id = db.getENT(fila['documento'], fila['provincia'],
-                                   fila['codigo_postal'], fila['direccion'])
+                                   fila['codigo_postal'], fila['direccion'], fila['observacion'])
             
             if entidad_id is None:
                 

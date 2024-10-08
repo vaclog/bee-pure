@@ -24,7 +24,10 @@ class DB:
             print(traceback.format_exc())
             print(e)
             
-    def getENT(self, entidad_externa, provincia, cp, direccion):
+    def getENT(self, entidad_externa, provincia, cp, direccion, obs):
+
+        if (obs == None):
+            obs = ''
         
         if provincia == 'CIUDAD DE BUENOS AIRES' or provincia == 'CAPITAL FEDERAL':
             provincia = 'C.A.B.A.'
@@ -43,6 +46,7 @@ class DB:
                     JOIN PNC ON LCL.PncID = PNC.PncId \
                    WHERE ENT.EntEntIDC='{entidad_externa}' \
                      AND LCL.LclCP = {cp} \
+                     AND upper(ENT.ENTOBS) = UPPER('{obs}') \
                      AND UPPER(PNC.PncNom) = UPPER('{provincia}') \
                      AND UPPER(ENT21.LEnDir) = UPPER('{direccion}')"
                      
