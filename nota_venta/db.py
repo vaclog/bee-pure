@@ -66,6 +66,7 @@ class DB:
         return s[:length]
     
     def generate_insert_query(self, data):
+        data = {key: (value if value is not None else '') for key, value in data.items()}
         table_name = "[VKM_Interfaz_Prod].[dbo].[IntEntidad]"
         columns = [
                     '"INEntId"',                    # 1
