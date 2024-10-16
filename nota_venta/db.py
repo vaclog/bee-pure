@@ -45,11 +45,11 @@ class DB:
                     JOIN ENT21 ON ENT21.EntID = ENT.EntID \
                     JOIN LCL ON ENT21.LEnLclID = LCL.LclID \
                     JOIN PNC ON LCL.PncID = PNC.PncId \
-                   WHERE ENT.EntEntIDC='{entidad_externa}' \
+                   WHERE ENT.EntEntIDC='{entidad_externa}'\
                      AND LCL.LclCP = {cp} \
-                     AND upper(ENT.ENTOBS) = UPPER('{obs}') \
-                     AND UPPER(PNC.PncNom) = UPPER('{provincia}') \
-                     AND UPPER(ENT21.LEnDir) = UPPER('{direccion}')"
+                     AND upper(ENT.ENTOBS) = UPPER('{self.limpiar_string(obs)}') \
+                     AND UPPER(PNC.PncNom) = UPPER('{self.limpiar_string(provincia)}') \
+                     AND UPPER(ENT21.LEnDir) = UPPER('{self.limpiar_string(direccion)}')"
                      
                    
         print(sentence)
