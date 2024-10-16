@@ -2,6 +2,7 @@
 import os
 from dotenv import load_dotenv
 from datetime import datetime
+import re
 # Cargar variables desde el archivo .env
 load_dotenv()
 
@@ -62,8 +63,15 @@ class DB:
                 return None
 
     def truncate_string(self, s, length):
-        print(s)
+        s = self.limpiar_string(s)
         return s[:length]
+    
+    def limpiar_string(self,texto):
+        # Solo conserva letras, números, espacios, signos de puntuación básicos, y el símbolo "@"
+        texto_limpio = re.sub(r'[^A-Za-z0-9\s.,;:!#&()-]', '', texto)
+        # Además, eliminamos las comillas simples (') y dobles (")
+        texto_limpio = texto_limpio.replace("'", "").replace('"', "")
+        return texto_limpio
     
     def generate_insert_query(self, data):
         data = {key: (value if value is not None else '') for key, value in data.items()}
