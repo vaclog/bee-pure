@@ -67,6 +67,8 @@ class DB:
         return s[:length]
     
     def limpiar_string(self,texto):
+        if not texto or texto.strip() == "":
+            return ""
         # Solo conserva letras, números, espacios, signos de puntuación básicos, y el símbolo "@"
         texto_limpio = re.sub(r'[^A-Za-z0-9\s.,;:!#&()-]', '', texto)
         # Además, eliminamos las comillas simples (') y dobles (")
