@@ -128,7 +128,7 @@ class DB:
 
         query = f"""INSERT INTO {table_name} ({columns_str}) 
                 VALUES (
-                '{self.truncate_string(str(data['cliente_id']),20)}', 
+                '{self.truncate_string(str(data['cliente_id']),11)}', 
                 NULL, 
                 0, 
                 '{self.truncate_string(data['nombre'],35)}',
@@ -151,7 +151,7 @@ class DB:
                 NULL,
                 
                 80,
-                '{self.truncate_string(str(data['cliente_id']), 20)}',
+                '{self.truncate_string(str(data['cliente_id']), 11)}',
                 NULL,
                 NULL,
                 '1',
