@@ -111,7 +111,7 @@ def read_excel_columns(file_path):
         reg['observacion'] = row[11].value
         reg['codigo_postal'] = row[12].value
         #print(f"type: {type(reg['sku'])} valor: {reg['sku']}")
-        if id == 0 and not reg['nombre'] == 'Razon Social':
+        if id == 0 and not reg['nombre'].upper() == 'Razon Social'.upper():
             raise FileFormatError('error de formato')
         if reg['sku'] is not None and id >0:
             lista = buscar_en_master({'sku': reg['sku'], 'descripcion': reg['descripcion']}, reg['cantidad'])
