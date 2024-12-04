@@ -13,7 +13,7 @@ class Config:
         self.processed_path = os.getenv('PROCESSED_PATH')
         self.import_path = os.getenv('IMPORT_PATH')
         self.new_customer_path = os.getenv('NEW_CUSTOMER_PATH')
-    
+        self.combos_path = os.getenv('COMBOS_PATH')
     def getPath(self):
         return self.path
         
