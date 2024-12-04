@@ -50,6 +50,17 @@ def read_master(file_path):
 
     return column_data
 
+
+def existe_en_combos(combos, sku):
+    for combo in combos:
+        if combo['sku'] == sku:
+            return True
+    return False
+
+def actualizar_items(combos, sku, item):
+    for combo in combos:
+        if combo['sku'] == sku:
+            combo['items'] =item
 #
 # Busco el sku en el master
 #       Si es un combo recorro y retorno un array con la relacion sku, cantidad del combo * cantidad solicitada
@@ -57,12 +68,24 @@ def read_master(file_path):
 #
 def buscar_en_master(sku_pair, cantidad):
     combo_pairs = []
+    items = 0
+    item_combo=[]
     for i, m in enumerate(masters):
         if m['sku_combo'] == sku_pair['sku']:
+            items += 1
             rec={}
             rec['sku'] = m['sku']
             rec['cantidad'] = m['cantidad'] * cantidad
             rec['descripcion'] = m['descripcion']
+            if "REG" in sku_pair['sku'] :
+                if existe_en_combos(combos, m['sku_combo']) == False:
+                    item_combo = {}
+                    item_combo["sku"] = m['sku_combo']
+                    item_combo["cantidad"] =  cantidad
+                    item_combo["items"] = items
+                    combos.append(item_combo)
+                else:
+                    actualizar_items(combos, m['sku_combo'], items)
             combo_pairs.append( rec)
 
     if len(combo_pairs) == 0:
@@ -72,6 +95,7 @@ def buscar_en_master(sku_pair, cantidad):
         rec['descripcion'] = sku_pair['descripcion']
         return [rec]
     else:
+        
         return combo_pairs
     
 #
@@ -155,7 +179,18 @@ def customer_array_management( cliente_id,  nombre, direccion, ciudad, codigo_po
                             'observacion': observacion,
                             'provincia': provincia}
                             )
-            
+def write_combos(combos_a_guardar):
+    f=cnf.combos_path
+    salida = f"{f}\combos.csv"
+    archivo_existia = os.path.exists(salida)
+    with codecs.open(salida, 'a','utf8') as archivo_csv:
+        writer = csv.writer(archivo_csv, delimiter=';')
+        if not archivo_existia:
+            titulo = [ 'Archivo', 'Factura', 'Fecha', 'Combo SKU', 'Cantidad Solicitada', 'Cantidad de Articulos']
+            writer.writerow(titulo)
+        for fila in combos_a_guardar:
+            writer.writerow((fila['file'], fila['numero_factura'], fila['fecha'],fila['sku'],fila['cantidad'],fila['items']))
+
 def write_csv(f):
     excel = read_excel_columns(f)
      
@@ -222,6 +257,7 @@ def write_csv(f):
                  ''
                  ]
             writer.writerow(r)
+    return f, fila['numero_factura'] , fila['fecha'] 
     
 def write_new_customers(data, f):
     filename = os.path.basename(f)
@@ -245,25 +281,67 @@ def write_new_customers(data, f):
 
             db.generate_insert_query(d)
         
+def procesa_combos(file, numero_factura, fecha):
+    
+    for c in combos:
+        registros={}
+        registros['archivo'] = file
+        registros['documento'] = numero_factura
+        registros['fecha'] = fecha
+        registros['sku'] = c['sku']
+        registros['cantidad'] = c['cantidad']
+        registros['items'] = c['items']
+        combos_a_guardar.append(registros)
+    return combos_a_guardar
+
+
+
+def formatear_fecha(fecha):
+    # Si es un objeto datetime
+    if isinstance(fecha, datetime):
+        return fecha.strftime('%Y-%m-%d')
+    # Si es un string
+    elif isinstance(fecha, str):
+        try:
+            # Intentar convertir el string a datetime (asumiendo que está en formato dd/mm/yyyy)
+            fecha_dt = datetime.strptime(fecha, '%d/%m/%Y')
+            return fecha_dt.strftime('%Y-%m-%d')
+        except ValueError:
+            # Manejar error si el string no está en el formato esperado
+            raise ValueError(f"Formato de fecha no reconocido: {fecha}")
+    else:
+        return ""
+
+
+
 timestamp_inicio = datetime.now()
 print(f"Inicio del proceso: {timestamp_inicio}")
 
 cnf = config.Config()
+combos=[]
+combos_a_guardar = []
 try:
     masters = read_master(cnf.master)
     
     files = read_files(cnf.getPath())
 
     db = db.DB()
-
+    
     for i, f in enumerate(files):
         new_customers = []
         try:
+            combos=[]
+            file=""
+            numero_factura=""
+            fecha=""
             print (f"Procesando archivo: {f}")
-            write_csv(f)
+            file, numero_factura, fecha = write_csv(f)
             if len(new_customers) > 0:
                 write_new_customers(new_customers, f)
-                
+            print(fecha)
+            combos_a_guardar = procesa_combos(os.path.basename(file), numero_factura, formatear_fecha(fecha))
+            #print(f"Guardando combos {combos_a_guardar}")
+            
             move_to_processed(f)
         except FileFormatError as e:
             print(f"ERROR: procesando archivo {f} es un problema {e}")
@@ -273,7 +351,11 @@ try:
             print(traceback.format_exc())
             
             print(e)
-            
+
+    if len(combos_a_guardar)    > 0:
+       print(f"Guardando combos {combos_a_guardar}")
+       db.insert_archivo(combos_a_guardar)
+       #write_combos(combos_a_guardar)
 
 except Exception as e:
     print(traceback.format_exc())

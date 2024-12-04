@@ -52,7 +52,7 @@ class DB:
                      AND UPPER(ENT21.LEnDir) = UPPER('{self.limpiar_string(direccion)}')"
                      
                    
-        print(sentence)
+        #print(sentence)
         with self.conn.cursor(as_dict=True) as cursor:
             cursor.execute(sentence)
             row_data = cursor.fetchone()
@@ -175,12 +175,36 @@ class DB:
                   
                   );"""
         
-        print(query)
+        #print(query)
         with self.conn.cursor(as_dict=True) as cursor:
+            
+            # TODO: Antes de subir a git sacar comentario
             cursor.execute(query)
+            #
             self.conn.commit()
 
             # Cerrar la conexión
             cursor.close()
 
     
+    def insert_archivo(self, data):
+       
+        
+        with self.conn.cursor(as_dict=True) as cursor:
+                for d in data:
+                    query = f"""INSERT into [Remito_PROD].[dbo].[beepure_regalos]
+                            ( [archivo], [documento], [fecha], [sku], [cantidad], [items] ) 
+                            VALUES (
+                            '{d['archivo']}', 
+                            '{d['documento']}', 
+                            '{d['fecha']}', 
+                            '{d['sku']}', 
+                            {d['cantidad']}, 
+                            {d['items']}
+                            )"""
+                    print(query)
+                    cursor.execute(query)
+                self.conn.commit()
+
+                # Cerrar la conexión
+                cursor.close()
