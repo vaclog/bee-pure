@@ -1,12 +1,22 @@
+import os
+from dotenv import load_dotenv
+
+# Cargar variables desde el archivo .env
+load_dotenv()
+
+
 class Config:
     
     def __init__(self) -> None:
-        self.path = r'C:\Python\src\deposito\bee pure\nota_venta\to_process'
-        self.master = r'C:\Python\src\deposito\bee pure\nota_venta\masters\combos tienda.xlsx'
-        self.processed_path = r'C:\Python\src\deposito\bee pure\nota_venta\processed'
-        self.import_path = r'C:\Python\src\deposito\bee pure\nota_venta\import_to_valkimia'
-        self.new_customer_path = r'C:\Python\src\deposito\bee pure\nota_venta\new_customer'
-
+        self.path = os.getenv('TO_PROCESS_PATH')
+        self.master = os.getenv('PATH_MASTER')
+        self.processed_path = os.getenv('PROCESSED_PATH')
+        self.import_path = os.getenv('IMPORT_PATH')
+        self.new_customer_path = os.getenv('NEW_CUSTOMER_PATH')
+        self.combos_path = os.getenv('COMBOS_PATH')
     def getPath(self):
         return self.path
         
+
+
+

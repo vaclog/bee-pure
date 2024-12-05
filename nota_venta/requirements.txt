@@ -1,6 +1,7 @@
-pymssql
-csv
-codecs
-os
-openpyxl
+pymssql==2.2.2
+python-dotenv 
+#csv
+#codecs
+#os
+openpyxl==3.1.2 
 datetime
