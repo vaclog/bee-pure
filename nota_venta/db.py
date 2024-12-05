@@ -191,6 +191,7 @@ class DB:
        
         
         with self.conn.cursor(as_dict=True) as cursor:
+            try:
                 for d in data:
                     query = f"""INSERT into [Remito_PROD].[dbo].[beepure_regalos]
                             ( [archivo], [documento], [fecha], [sku], [cantidad], [items] ) 
@@ -202,9 +203,13 @@ class DB:
                             {d['cantidad']}, 
                             {d['items']}
                             )"""
-                    print(query)
+                    
                     cursor.execute(query)
                 self.conn.commit()
 
                 # Cerrar la conexión
                 cursor.close()
+
+            except Exception as e:
+                print(query)
+                raise e

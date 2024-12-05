@@ -66,10 +66,10 @@ def actualizar_items(combos, sku, item):
 #       Si es un combo recorro y retorno un array con la relacion sku, cantidad del combo * cantidad solicitada
 #       Si no es un combo solo retorno un array con el mismo sku de entrada y su cantidad.
 #
-def buscar_en_master(sku_pair, cantidad):
+def buscar_en_master(sku_pair, cantidad, numero_factura):
     combo_pairs = []
     items = 0
-    item_combo=[]
+    item_combo={}
     for i, m in enumerate(masters):
         if m['sku_combo'] == sku_pair['sku']:
             items += 1
@@ -78,16 +78,22 @@ def buscar_en_master(sku_pair, cantidad):
             rec['cantidad'] = m['cantidad'] * cantidad
             rec['descripcion'] = m['descripcion']
             if "REG" in sku_pair['sku'] :
-                if existe_en_combos(combos, m['sku_combo']) == False:
-                    item_combo = {}
-                    item_combo["sku"] = m['sku_combo']
-                    item_combo["cantidad"] =  cantidad
-                    item_combo["items"] = items
-                    combos.append(item_combo)
-                else:
-                    actualizar_items(combos, m['sku_combo'], items)
+                
+                item_combo['numero_factura'] = numero_factura    
+                item_combo["sku"] = m['sku_combo']
+                item_combo["cantidad"] =  cantidad if isinstance(cantidad, (int, float, complex)) else 0
+                item_combo["items"] = items
+                    
             combo_pairs.append( rec)
 
+    if "REG" in sku_pair['sku'] :
+        if len(item_combo) == 0:
+            item_combo['numero_factura'] = numero_factura    
+            item_combo['sku'] = sku_pair['sku']
+            item_combo['cantidad'] = cantidad if isinstance(cantidad, (int, float, complex))  else 0
+            item_combo['items'] = 0
+        combos.append(item_combo)
+       
     if len(combo_pairs) == 0:
         rec={}
         rec['sku'] = sku_pair['sku']
@@ -138,7 +144,7 @@ def read_excel_columns(file_path):
         if id == 0 and not reg['nombre'].upper() == 'Razon Social'.upper():
             raise FileFormatError('error de formato')
         if reg['sku'] is not None and id >0:
-            lista = buscar_en_master({'sku': reg['sku'], 'descripcion': reg['descripcion']}, reg['cantidad'])
+            lista = buscar_en_master({'sku': reg['sku'], 'descripcion': reg['descripcion']}, reg['cantidad'], reg['numero_factura'])
             for l in lista:
                 
                 reg2 = dict(reg)
@@ -257,7 +263,7 @@ def write_csv(f):
                  ''
                  ]
             writer.writerow(r)
-    return f, fila['numero_factura'] , fila['fecha'] 
+    return f, fila['fecha'] 
     
 def write_new_customers(data, f):
     filename = os.path.basename(f)
@@ -281,12 +287,12 @@ def write_new_customers(data, f):
 
             db.generate_insert_query(d)
         
-def procesa_combos(file, numero_factura, fecha):
+def procesa_combos(file, fecha):
     
     for c in combos:
         registros={}
         registros['archivo'] = file
-        registros['documento'] = numero_factura
+        registros['documento'] = c['numero_factura']
         registros['fecha'] = fecha
         registros['sku'] = c['sku']
         registros['cantidad'] = c['cantidad']
@@ -335,11 +341,11 @@ try:
             numero_factura=""
             fecha=""
             print (f"Procesando archivo: {f}")
-            file, numero_factura, fecha = write_csv(f)
+            file, fecha = write_csv(f)
             if len(new_customers) > 0:
                 write_new_customers(new_customers, f)
-            print(fecha)
-            combos_a_guardar = procesa_combos(os.path.basename(file), numero_factura, formatear_fecha(fecha))
+            
+            combos_a_guardar = procesa_combos(os.path.basename(file), formatear_fecha(fecha))
             #print(f"Guardando combos {combos_a_guardar}")
             
             move_to_processed(f)
