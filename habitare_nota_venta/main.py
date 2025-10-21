@@ -1,10 +1,15 @@
 import os
+import sys
+
+# Add parent directory to path to import common module
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import openpyxl
-import config
+import common.config as config
 from datetime import datetime
 import csv
 import codecs
-import db
+import common.db as db
 import traceback
 
 
@@ -35,9 +40,9 @@ def read_master(file_path):
 
     column_data = []
     for id, row in enumerate(zip(sheet['A'],  # SKU_COMBO
-                   sheet['M'], #cantidad
-                   sheet['N'],  #SKU
-                   sheet['O'] # Descripcion
+                   sheet['C'], #cantidad
+                   sheet['D'],  #SKU
+                   sheet['B'] # Descripcion
                    
                    )):
         reg = {}
@@ -110,48 +115,53 @@ def buscar_en_master(sku_pair, cantidad, numero_factura):
 def read_excel_columns(file_path):
     workbook = openpyxl.load_workbook(file_path)
     sheet = workbook.active
-
+    row_con_datos = 2
     column_data = []
-    for id, row in enumerate(zip(sheet['A'],  # Nombre
-                   sheet['C'],  #Documento
-                   sheet['E'],  #Provincia
-                   sheet['F'],  #Ciudad 
-                   sheet['G'],  #Direccion
-                   sheet['J'],  #Fecha
-                   sheet['P'],  #Numero Factura
-                   sheet['U'],  #SKU
-                   sheet['V'], # Descripcion
-                   sheet['W'],  #Cantidad
-                   sheet['B'], # Tipo
-                   sheet['AB'], # Observacion
-                   sheet['H']  # CP
+    for id, row in enumerate(zip(sheet['D'],  # Nombre Row 1
+                   sheet['A'],  #Documento Row 2
+                   sheet['O'],  #Provincia Row 3
+                   sheet['O'],  #Ciudad  Row 4
+                   sheet['N'],  #Direccion Row 5
+                   sheet['B'],  #Fecha Row 6
+                   sheet['A'],  #Numero Factura Row 7
+                   sheet['E'],  #SKU Row 8
+                   sheet['G'], # Descripcion Row 9
+                   sheet['H'],  #Cantidad Row 10
+                   sheet['D'], # Tipo Row 11
+                   sheet['J'], # Observacion1 Row 12,
+                   sheet['K'], # Observacion2 Row 13,
+                   sheet['L'], # Observacion3 Row 14,
+                   sheet['M'], # Observacion4 Row 15,
+                   sheet['P'],  # CP Row 16
+                   sheet['Q']   # FP Row 17
                    )):
-        reg = {}
-        reg['nombre'] = row[0].value
-        reg['documento'] = row[1].value
-        reg['provincia'] = row[2].value
-        reg['ciudad'] = row[3].value
-        reg['direccion'] = row[4].value
-        reg['fecha'] = row[5].value
-        reg['numero_factura'] = row[6].value
-        reg['sku'] = row[7].value
-        reg['descripcion'] = row[8].value
-        reg['cantidad'] = row[9].value
-        reg['tipo'] = row[10].value
-        reg['observacion'] = row[11].value
-        reg['codigo_postal'] = row[12].value
-        #print(f"type: {type(reg['sku'])} valor: {reg['sku']}")
-        if id == 0 and not reg['nombre'].upper() == 'Razon Social'.upper():
-            raise FileFormatError('error de formato')
-        if reg['sku'] is not None and id >0:
-            lista = buscar_en_master({'sku': reg['sku'], 'descripcion': reg['descripcion']}, reg['cantidad'], reg['numero_factura'])
-            for l in lista:
-                
-                reg2 = dict(reg)
-                reg2['sku'] = l['sku']
-                reg2['cantidad'] = l['cantidad']
-                reg2['descripcion'] = l['descripcion']
-                column_data.append(reg2)
+        if id >= row_con_datos:
+            reg = {}
+            reg['nombre'] = row[0].value
+            reg['documento'] = row[1].value
+            reg['provincia'] = row[16].value
+            reg['ciudad'] = row[3].value
+            reg['direccion'] = row[4].value
+            reg['fecha'] = row[5].value
+            reg['numero_factura'] = row[6].value
+            reg['sku'] = row[7].value
+            reg['descripcion'] = row[8].value
+            reg['cantidad'] = row[9].value
+            reg['tipo'] = row[10].value
+            reg['observacion'] = str(row[11].value) + ' ' + str(row[12].value) + ' ' + str(row[13].value) + ' ' + str(row[14].value) 
+            reg['codigo_postal'] = row[15].value
+            #print(f"type: {type(reg['sku'])} valor: {reg['sku']}")
+            if id == 0 and not reg['nombre'].upper() == 'Razon Social'.upper():
+                raise FileFormatError('error de formato')
+            if reg['sku'] is not None and id >0:
+                lista = buscar_en_master({'sku': reg['sku'], 'descripcion': reg['descripcion']}, reg['cantidad'], reg['numero_factura'])
+                for l in lista:
+                    
+                    reg2 = dict(reg)
+                    reg2['sku'] = l['sku']
+                    reg2['cantidad'] = l['cantidad']
+                    reg2['descripcion'] = l['descripcion']
+                    column_data.append(reg2)
                 
 
     return column_data
@@ -227,7 +237,8 @@ def write_csv(f):
                                    fila['codigo_postal'], fila['direccion'], fila['observacion'])
             
             if entidad_id is None:
-                
+                if fila['tipo']!='DNI':
+                    fila['tipo']='DNI'
                 customer_array_management(fila['documento'],
                                           fila['nombre'],
                                           fila['direccion'],
@@ -259,8 +270,8 @@ def write_csv(f):
                  '',
                  '',
                  '',
-                 '',
-                 ''
+                 fila['direccion'],
+                 fila['provincia']
                  ]
             writer.writerow(r)
     return f, fila['fecha'] 
@@ -323,7 +334,9 @@ def formatear_fecha(fecha):
 timestamp_inicio = datetime.now()
 print(f"Inicio del proceso: {timestamp_inicio}")
 
-cnf = config.Config()
+# Cargar configuración con el .env del directorio del script
+env_file = os.path.join(os.path.dirname(__file__), '.env')
+cnf = config.Config(env_path=env_file)
 combos=[]
 combos_a_guardar = []
 try:

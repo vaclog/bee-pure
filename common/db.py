@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 from datetime import datetime
 import re
+import pyodbc
 # Cargar variables desde el archivo .env
 load_dotenv()
 
@@ -14,12 +15,20 @@ class DB:
         self.user = os.getenv('DB_USER')
         self.password  = os.getenv('DB_PASSWORD')
         try:
-            self.conn = pymssql.connect(self.server, 
-                                   self.user, 
-                                   self.password, 
-                                   self.db)		
-            print ('CONECTADO')
-            self.cursor = self.conn.cursor(as_dict=True)
+            # self.conn = pymssql.connect(self.server, 
+            #                        self.user, 
+            #                        self.password, 
+            #                        self.db)	
+            
+            server = f'tcp:{self.server}'
+            conn_string = 'DRIVER={ODBC Driver 17 for SQL Server};SERVER=' + server +\
+                          ';DATABASE='+ self.db +\
+                          ';UID='+ self.user + \
+                          ';PWD='+ self.password
+            self.conn = pyodbc.connect(conn_string)
+
+            print ('CONECTADO VALMIMIA')
+            self.cursor = self.conn.cursor()
         
         except Exception as e:
             print(traceback.format_exc())
@@ -27,6 +36,7 @@ class DB:
             
     def getENT(self, entidad_externa, provincia, cp, direccion, obs):
 
+        cuenta_id = os.getenv('CUENTA_ID')
         if (obs == None):
             obs = ''
         
@@ -42,18 +52,20 @@ class DB:
 		
         sentence=f"SELECT ENT.EntID as entidad_id\
                     FROM ENT\
+                    JOIN ENT6 ON ENT6.EntID = ENT.EntID \
                     JOIN ENT21 ON ENT21.EntID = ENT.EntID \
                     JOIN LCL ON ENT21.LEnLclID = LCL.LclID \
                     JOIN PNC ON LCL.PncID = PNC.PncId \
                    WHERE ENT.EntEntIDC='{entidad_externa}'\
                      AND LCL.LclCP = {cp} \
+                     AND ENT6.EntLogID  =  {cuenta_id}\
                      AND upper(ENT.ENTOBS) = UPPER('{self.limpiar_string(obs)}') \
                      AND UPPER(PNC.PncNom) = UPPER('{self.limpiar_string(provincia)}') \
                      AND UPPER(ENT21.LEnDir) = UPPER('{self.limpiar_string(direccion)}')"
                      
                    
         #print(sentence)
-        with self.conn.cursor(as_dict=True) as cursor:
+        with self.conn.cursor() as cursor:
             cursor.execute(sentence)
             row_data = cursor.fetchone()
             if row_data != None:
@@ -76,6 +88,8 @@ class DB:
         return texto_limpio
     
     def generate_insert_query(self, data):
+        
+        cuenta_id = os.getenv('CUENTA_ID')
         data = {key: (value if value is not None else '') for key, value in data.items()}
         table_name = "[VKM_Interfaz_Prod].[dbo].[IntEntidad]"
         columns = [
@@ -167,7 +181,7 @@ class DB:
                 NULL,
                 NULL,
                 '{self.truncate_string(data['observacion'],1024)}',
-                '13781'
+                '{cuenta_id}'
                   
                   
                   
@@ -176,7 +190,7 @@ class DB:
                   );"""
         
         #print(query)
-        with self.conn.cursor(as_dict=True) as cursor:
+        with self.conn.cursor() as cursor:
             
             # TODO: Antes de subir a git sacar comentario
             cursor.execute(query)
@@ -184,7 +198,7 @@ class DB:
             self.conn.commit()
 
             # Cerrar la conexión
-            cursor.close()
+            #cursor.close()
 
     
     def insert_archivo(self, data):

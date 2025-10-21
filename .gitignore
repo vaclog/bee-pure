@@ -6,3 +6,5 @@ _*
 processed
 combos
 .env*
+*.xlsx
+*.xls
