@@ -225,9 +225,9 @@ def read_excel_columns(file_path):
         reg = {}
         reg['nombre'] = row[0].value
         reg['documento'] = row[1].value
-        reg['provincia'] = row[2].value
-        reg['ciudad'] = row[3].value
-        reg['direccion'] = row[4].value
+        reg['provincia'] = row[2].value.upper()
+        reg['ciudad'] = row[3].value.upper()
+        reg['direccion'] = row[4].value.upper()
         reg['fecha'] = row[5].value
         reg['numero_factura'] = row[6].value
         reg['sku'] = row[7].value
