@@ -223,7 +223,7 @@ def read_excel_columns(file_path):
                    sheet['H']  # CP
                    )):
         reg = {}
-        reg['nombre'] = row[0].value
+        reg['nombre'] = row[0].value.upper()
         reg['documento'] = row[1].value
         reg['provincia'] = row[2].value.upper()
         reg['ciudad'] = row[3].value.upper()
