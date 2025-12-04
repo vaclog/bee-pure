@@ -117,43 +117,54 @@ def read_excel_columns(file_path):
     sheet = workbook.active
     row_con_datos = 2
     column_data = []
-    for id, row in enumerate(zip(sheet['D'],  # Nombre Row 1
-                   sheet['A'],  #Documento Row 2
-                   sheet['O'],  #Provincia Row 3
-                   sheet['O'],  #Ciudad  Row 4
-                   sheet['N'],  #Direccion Row 5
-                   sheet['B'],  #Fecha Row 6
-                   sheet['A'],  #Numero Factura Row 7
-                   sheet['E'],  #SKU Row 8
-                   sheet['G'], # Descripcion Row 9
-                   sheet['H'],  #Cantidad Row 10
-                   sheet['D'], # Tipo Row 11
-                   sheet['J'], # Observacion1 Row 12,
-                   sheet['K'], # Observacion2 Row 13,
-                   sheet['L'], # Observacion3 Row 14,
-                   sheet['M'], # Observacion4 Row 15,
-                   sheet['P'],  # CP Row 16
-                   sheet['Q']   # FP Row 17
-                   )):
+    
+    ## A                B       C           D       E           F   G           H           I       J       K       L       M       N                   O           P       Q   
+    #> 0                1       2           3       4           5   6           7           8       9       10      11      12      13                  14          15  16
+    ## 1	            2	    3	        4	    5	        6	7	        8	        9	    10	    11	    12	    13	    14	                15	        16	17
+    ## Nro Documento	Fecha	cliente ID	Nombre	Codigo Art	FP	Descripci?n	cantidad	Lote	Obs1	Obs2	Obs3	Obs4	Direcci¢n Entrega	Localidad	CP	Provincia
+
+    ##
+    ##
+    for id, row in enumerate(zip(   sheet['A'],  # Nombre Row 0
+                                    sheet['B'],  #Documento Row 1
+                                    sheet['C'],  #Provincia Row 2
+                                    sheet['D'],  #Client_id  Row 3
+                                    sheet['E'],  #Direccion Row 4
+                                    sheet['F'],  #Fecha Row 5
+                                    sheet['G'],  #Numero Factura Row 6
+                                    sheet['H'],  #SKU Row 7
+                                    sheet['I'], # Descripcion Row 8
+                                    sheet['J'],  #Cantidad Row 9
+                                    sheet['K'], # Tipo Row 10
+                                    sheet['L'], # Observacion1 Row 11,
+                                    sheet['M'], # Observacion2 Row 12,
+                                    sheet['N'], # Observacion3 Row 13,
+                                    sheet['O'], # Observacion4 Row 14,
+                                    sheet['P'],  # CP Row 15
+                                    sheet['Q']   # FP Row 16
+                                    )):
         if id >= row_con_datos:
             reg = {}
-            reg['nombre'] = row[0].value
-            reg['documento'] = row[1].value
-            reg['provincia'] = row[16].value
-            reg['ciudad'] = row[3].value
-            reg['direccion'] = row[4].value
-            reg['fecha'] = row[5].value
-            reg['numero_factura'] = row[6].value
-            reg['sku'] = row[7].value
-            reg['descripcion'] = row[8].value
-            reg['cantidad'] = row[9].value
-            reg['tipo'] = row[10].value
-            obs1 = '' if row[11].value is None else row[11].value
-            obs2 = '' if row[12].value is None else row[12].value
-            obs3 = '' if row[13].value is None else row[13].value
-            obs4 = '' if row[14].value is None else row[14].value
+            reg['documento'] = row[0].value
+            reg['numero_factura']= reg['documento']
+            reg['fecha'] = row[1].value
+            reg['cliente_id'] = row[2].value
+            reg['nombre'] = row[3].value
+            reg['sku'] = row[4].value
+            reg['fp'] = row[5].value
+            reg['descripcion'] = row[6].value
+            reg['cantidad'] = row[7].value
+            reg['lote'] = row[8].value
+            
+            obs1 = '' if row[9].value is None else row[9].value
+            obs2 = '' if row[10].value is None else row[10].value
+            obs3 = '' if row[11].value is None else row[11].value
+            obs4 = '' if row[12].value is None else row[12].value
             reg['observacion'] = f"{obs1} {obs2} {obs3} {obs4}".strip()
+            reg['direccion'] = row[13].value
+            reg['ciudad'] = row[14].value
             reg['codigo_postal'] = row[15].value
+            reg['provincia'] = row[16].value
             #print(f"type: {type(reg['sku'])} valor: {reg['sku']}")
             if id == 0 and not reg['nombre'].upper() == 'Razon Social'.upper():
                 raise FileFormatError('error de formato')
@@ -212,73 +223,77 @@ def write_combos(combos_a_guardar):
             writer.writerow((fila['file'], fila['numero_factura'], fila['fecha'],fila['sku'],fila['cantidad'],fila['items']))
 
 def write_csv(f):
-    excel = read_excel_columns(f)
-     
-    filename = os.path.basename(f)
-    
-    salida = f"{cnf.import_path}\{os.path.splitext(filename)[0]}.csv"
-    with codecs.open(salida, 'w','utf8') as archivo_csv:
-        writer = csv.writer(archivo_csv, delimiter=';')
-        titulo = [ 'Nro Documento',
-                  'Fecha',
-                  'cliente ID',
-                  'Nombre',
-                  'Codigo Art',
-                  'FP',
-                  'Descripción',
-                  'cantidad',
-                  'Lote',
-                  'Obs1',
-                  'Obs2',
-                  'Obs3',
-                  'Obs4',
-                  'Dirección',
-                  'Localidad']
-        writer.writerow(titulo)
-        for fila in excel:
-            entidad_id = None
-            entidad_id = db.getENT(fila['documento'], fila['provincia'],
-                                   fila['codigo_postal'], fila['direccion'], fila['observacion'])
-            
-            if entidad_id is None:
-                if fila['tipo']!='DNI':
-                    fila['tipo']='DNI'
-                customer_array_management(fila['documento'],
-                                          fila['nombre'],
-                                          fila['direccion'],
-                                          fila['ciudad'],
-                                          fila['codigo_postal'],
-                                          fila['tipo'] if fila['tipo'] is not None else '',
-                                          fila['documento'],
-                                          fila['observacion'] if fila['observacion'] is not None else '',
-                                          fila['provincia']
-                                          )
-                # new_customers.append({'cliente_id': fila['documento'],
-                #                     'nombre': fila['nombre'],
-                #                     'direccion': fila['direccion'],
-                #                     'localidad': fila['ciudad'],
-                #                     'codigo_postal': '1',
-                #                     'tipo': fila['tipo'],
-                #                     'numero_documento': fila['documento']})
-            
-            r = [fila['numero_factura'],    #1
-                  fila['fecha'],            #2
-                  fila['documento'] ,       #3
-                 fila['nombre'],            #4
-                 fila['sku'],               #5
-                 '1',                       #6
-                 '',                        #7
-                 fila['cantidad'],          #8
-                 '',
-                 fila['observacion'],
-                 '',
-                 '',
-                 '',
-                 fila['direccion'],
-                 fila['provincia']
-                 ]
-            writer.writerow(r)
-    return f, fila['fecha'] 
+    try: 
+        excel = read_excel_columns(f)
+        
+        filename = os.path.basename(f)
+        
+        salida = f"{cnf.import_path}\{os.path.splitext(filename)[0]}.csv"
+        with codecs.open(salida, 'w','utf8') as archivo_csv:
+            writer = csv.writer(archivo_csv, delimiter=';')
+            titulo = [ 'Nro Documento',
+                    'Fecha',
+                    'cliente ID',
+                    'Nombre',
+                    'Codigo Art',
+                    'FP',
+                    'Descripción',
+                    'cantidad',
+                    'Lote',
+                    'Obs1',
+                    'Obs2',
+                    'Obs3',
+                    'Obs4',
+                    'Dirección',
+                    'Localidad']
+            writer.writerow(titulo)
+            for fila in excel:
+                entidad_id = None
+                entidad_id = db.getENT(fila['cliente_id'], fila['provincia'],
+                                    fila['codigo_postal'], fila['direccion'], fila['observacion'])
+                
+                if entidad_id is None:
+                    fila['tipo'] = 'DNI'
+                    customer_array_management(fila['cliente_id'],
+                                            fila['nombre'],
+                                            fila['direccion'],
+                                            fila['ciudad'],
+                                            fila['codigo_postal'],
+                                            fila['tipo'] if fila['tipo'] is not None else '',
+                                            fila['cliente_id'],
+                                            fila['observacion'] if fila['observacion'] is not None else '',
+                                            fila['provincia']
+                                            )
+                    # new_customers.append({'cliente_id': fila['documento'],
+                    #                     'nombre': fila['nombre'],
+                    #                     'direccion': fila['direccion'],
+                    #                     'localidad': fila['ciudad'],
+                    #                     'codigo_postal': '1',
+                    #                     'tipo': fila['tipo'],
+                    #                     'numero_documento': fila['documento']})
+                
+                r = [fila['numero_factura'],    #1
+                    fila['fecha'],            #2
+                    fila['cliente_id'] ,       #3
+                    fila['nombre'],            #4
+                    fila['sku'],               #5
+                    '1',                       #6
+                    '',                        #7
+                    fila['cantidad'],          #8
+                    '',
+                    fila['observacion'],
+                    '',
+                    '',
+                    '',
+                    fila['direccion'],
+                    fila['provincia']
+                    ]
+                writer.writerow(r)
+        return f, fila['fecha'] 
+    except FileFormatError as e:
+        raise e
+    except Exception as e:
+        raise e
     
 def write_new_customers(data, f):
     filename = os.path.basename(f)
@@ -300,7 +315,7 @@ def write_new_customers(data, f):
             
             writer.writerow(r)
 
-            db.generate_insert_query(d)
+            #db.generate_insert_query(d)
         
 def procesa_combos(file, fecha):
     
