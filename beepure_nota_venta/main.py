@@ -1,4 +1,7 @@
 import os
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import openpyxl
 import common.config as config
 from datetime import datetime
@@ -38,7 +41,7 @@ def read_files(path):
                 time_difference = current_time - created_time
                 # Solo para los archivos que fueron creados hace mas de un minuto, 
                 # para evitar tomar un archivo que se esta creando
-                if os.path.isfile(file_path) and file.endswith('.xlsx') and time_difference.total_seconds() >= 60:            
+                if os.path.isfile(file_path) and file.endswith('.xlsx') and time_difference.total_seconds() >= 20:            
                     file_list.append(file_path)
             except (OSError, IOError) as e:
                 print(f"ERROR: Cannot access file {file}: {e}")
@@ -526,7 +529,9 @@ def formatear_fecha(fecha):
 timestamp_inicio = datetime.now()
 print(f"Inicio del proceso: {timestamp_inicio}")
 
-cnf = config.Config()
+# Get the .env file from the same directory as this script
+env_path = os.path.join(os.path.dirname(__file__), '.env')
+cnf = config.Config(env_path=env_path)
 combos=[]
 combos_a_guardar = []
 try:
