@@ -315,7 +315,7 @@ def write_new_customers(data, f):
             
             writer.writerow(r)
 
-            #db.generate_insert_query(d)
+            db.generate_insert_query(d)
         
 def procesa_combos(file, fecha):
     
