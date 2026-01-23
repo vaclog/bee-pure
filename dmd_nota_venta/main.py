@@ -10,6 +10,7 @@ from datetime import datetime
 import csv
 import codecs
 import common.db as db
+import common.excel as excel_utils
 import traceback
 
 
@@ -28,7 +29,8 @@ def read_files(path):
         time_difference = current_time - created_time
         # Solo para los archivos que fueron creados hace mas de un minuto, 
         # para evitar tomar un archivo que se esta creando
-        if os.path.isfile(file_path) and file.endswith('.xlsx') and time_difference.total_seconds() >= 60:            
+
+        if os.path.isfile(file_path) and (file.endswith('.xlsx') or file.endswith('.csv')) and time_difference.total_seconds() >= 10:
             file_list.append(file_path)
     return file_list
 #
@@ -110,76 +112,110 @@ def buscar_en_master(sku_pair, cantidad, numero_factura):
         return combo_pairs
     
 #
-# Por cada archivo en el xlsx, se combierte a formato Valkimia
+# Por cada archivo en el xlsx o csv, se combierte a formato Valkimia
 #
 def read_excel_columns(file_path):
-    workbook = openpyxl.load_workbook(file_path)
-    sheet = workbook.active
+
     row_con_datos = 2
     column_data = []
-    
-    ## A                B       C           D       E           F   G           H           I       J       K       L       M       N                   O           P       Q   
+
+    ## A                B       C           D       E           F   G           H           I       J       K       L       M       N                   O           P       Q
     #> 0                1       2           3       4           5   6           7           8       9       10      11      12      13                  14          15  16
     ## 1	            2	    3	        4	    5	        6	7	        8	        9	    10	    11	    12	    13	    14	                15	        16	17
     ## Nro Documento	Fecha	cliente ID	Nombre	Codigo Art	FP	Descripci?n	cantidad	Lote	Obs1	Obs2	Obs3	Obs4	Direcci¢n Entrega	Localidad	CP	Provincia
 
-    ##
-    ##
-    for id, row in enumerate(zip(   sheet['A'],  # Nombre Row 0
-                                    sheet['B'],  #Documento Row 1
-                                    sheet['C'],  #Provincia Row 2
-                                    sheet['D'],  #Client_id  Row 3
-                                    sheet['E'],  #Direccion Row 4
-                                    sheet['F'],  #Fecha Row 5
-                                    sheet['G'],  #Numero Factura Row 6
-                                    sheet['H'],  #SKU Row 7
-                                    sheet['I'], # Descripcion Row 8
-                                    sheet['J'],  #Cantidad Row 9
-                                    sheet['K'], # Tipo Row 10
-                                    sheet['L'], # Observacion1 Row 11,
-                                    sheet['M'], # Observacion2 Row 12,
-                                    sheet['N'], # Observacion3 Row 13,
-                                    sheet['O'], # Observacion4 Row 14,
-                                    sheet['P'],  # CP Row 15
-                                    sheet['Q']   # FP Row 16
-                                    )):
+    # Detectar extensión del archivo
+    extension = os.path.splitext(file_path)[1].lower()
+
+    if extension == '.xlsx':
+        rows = _read_xlsx_rows(file_path)
+    elif extension == '.csv':
+        rows = _read_csv_rows(file_path)
+    else:
+        raise FileFormatError(f'Extensión no soportada: {extension}')
+
+    for id, row in enumerate(rows):
         if id >= row_con_datos:
             reg = {}
-            reg['documento'] = row[0].value
+            reg['documento'] = row[0]
             reg['numero_factura']= reg['documento']
-            reg['fecha'] = row[1].value
-            reg['cliente_id'] = row[2].value
-            reg['nombre'] = row[3].value
-            reg['sku'] = row[4].value
-            reg['fp'] = row[5].value
-            reg['descripcion'] = row[6].value
-            reg['cantidad'] = row[7].value
-            reg['lote'] = row[8].value
-            
-            obs1 = '' if row[9].value is None else row[9].value
-            obs2 = '' if row[10].value is None else row[10].value
-            obs3 = '' if row[11].value is None else row[11].value
-            obs4 = '' if row[12].value is None else row[12].value
+            reg['fecha'] = row[1]
+            reg['cliente_id'] = row[2]
+            reg['nombre'] = row[3]
+            reg['sku'] = row[4]
+            reg['fp'] = row[5]
+            reg['descripcion'] = row[6]
+            reg['cantidad'] = _parse_number(row[7])
+            reg['lote'] = row[8]
+
+            obs1 = '' if row[9] is None else row[9]
+            obs2 = '' if row[10] is None else row[10]
+            obs3 = '' if row[11] is None else row[11]
+            obs4 = '' if row[12] is None else row[12]
             reg['observacion'] = f"{obs1} {obs2} {obs3} {obs4}".strip()
-            reg['direccion'] = row[13].value
-            reg['ciudad'] = row[14].value
-            reg['codigo_postal'] = row[15].value
-            reg['provincia'] = row[16].value
+            reg['direccion'] = row[13]
+            reg['ciudad'] = row[14]
+            reg['codigo_postal'] = row[15]
+            reg['provincia'] = row[16]
             #print(f"type: {type(reg['sku'])} valor: {reg['sku']}")
             if id == 0 and not reg['nombre'].upper() == 'Razon Social'.upper():
                 raise FileFormatError('error de formato')
             if reg['sku'] is not None and id >0:
                 lista = buscar_en_master({'sku': reg['sku'], 'descripcion': reg['descripcion']}, reg['cantidad'], reg['numero_factura'])
                 for l in lista:
-                    
+
                     reg2 = dict(reg)
                     reg2['sku'] = l['sku']
                     reg2['cantidad'] = l['cantidad']
                     reg2['descripcion'] = l['descripcion']
                     column_data.append(reg2)
-                
+
 
     return column_data
+
+
+def _read_xlsx_rows(file_path):
+    """Lee filas de un archivo XLSX y retorna lista de tuplas con valores."""
+    workbook = openpyxl.load_workbook(file_path)
+    sheet = workbook.active
+    rows = []
+    for row in zip(sheet['A'], sheet['B'], sheet['C'], sheet['D'], sheet['E'],
+                   sheet['F'], sheet['G'], sheet['H'], sheet['I'], sheet['J'],
+                   sheet['K'], sheet['L'], sheet['M'], sheet['N'], sheet['O'],
+                   sheet['P'], sheet['Q']):
+        rows.append(tuple(cell.value for cell in row))
+    return rows
+
+
+def _read_csv_rows(file_path):
+    """Lee filas de un archivo CSV y retorna lista de tuplas con valores."""
+    encoding = excel_utils.detect_encoding(file_path)
+    rows = []
+    with open(file_path, 'r', encoding=encoding) as csv_file:
+        reader = csv.reader(csv_file, delimiter=';')
+        for row in reader:
+            # Asegurar que la fila tenga 17 columnas (A-Q)
+            while len(row) < 17:
+                row.append(None)
+            # Convertir strings vacíos a None
+            row = [val if val != '' else None for val in row]
+            rows.append(tuple(row))
+    return rows
+
+
+def _parse_number(value):
+    """Convierte un valor a número si es posible."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    try:
+        return int(value)
+    except ValueError:
+        try:
+            return float(value)
+        except ValueError:
+            return value
 
 def move_to_processed(file_path):
     filename = os.path.basename(file_path)
@@ -298,7 +334,7 @@ def write_csv(f):
 def write_new_customers(data, f):
     filename = os.path.basename(f)
     salida = f"{cnf.new_customer_path}/new_customer_{os.path.splitext(filename)[0]}.csv"
-    with codecs.open(salida, 'w','ansi') as archivo_csv:
+    with codecs.open(salida, 'w','utf-8') as archivo_csv:
         writer = csv.writer(archivo_csv, delimiter=';')
         titulo=[1,2,3,4,5,6,7]
       
