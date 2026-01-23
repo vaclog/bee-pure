@@ -17,6 +17,12 @@ class Config:
         self.import_path = os.getenv('IMPORT_PATH')
         self.new_customer_path = os.getenv('NEW_CUSTOMER_PATH')
         self.combos_path = os.getenv('COMBOS_PATH')
+        
+        self.smtp_host=os.getenv('SMTP_HOST')
+        self.smtp_port=os.getenv('SMTP_PORT')
+        self.smtp_user=os.getenv('SMTP_USER')
+        self.smtp_password=os.getenv('SMTP_PASSWORD')
+        self.sender_mail=os.getenv('SENDER_MAIL')
     def getPath(self):
         return self.path
         
