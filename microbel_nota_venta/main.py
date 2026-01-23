@@ -11,7 +11,6 @@ import csv
 import codecs
 import common.db as db
 import traceback
-import common.smtp as smtp
 
 
 
@@ -119,10 +118,10 @@ def read_excel_columns(file_path):
     row_con_datos = 2
     column_data = []
     
-    ## A                B       C           D       E           F   G           H           I       J       K       L       M                   N                   O           P   
-    #> 0                1       2           3       4           5   6           7           8       9       10      11      12                  13                  14          15
-    ## 1	            2	    3	        4	    5	        6	7	        8	        9	    10	    11	    12	    13	                14	                15	        16
-    ## Nro Documento	Fecha	cliente ID	Nombre	Codigo Art	FP	Descripci?n	cantidad	Obs1	Obs2	Obs3	Obs4	Direcci¢n Entrega	Localidad	        CP	        Provincia 
+    ## A                B       C           D       E           F   G           H           I       J       K       L       M       N                   O           P       Q   
+    #> 0                1       2           3       4           5   6           7           8       9       10      11      12      13                  14          15  16
+    ## 1	            2	    3	        4	    5	        6	7	        8	        9	    10	    11	    12	    13	    14	                15	        16	17
+    ## Nro Documento	Fecha	cliente ID	Nombre	Codigo Art	FP	Descripci?n	cantidad	Lote	Obs1	Obs2	Obs3	Obs4	Direcci¢n Entrega	Localidad	CP	Provincia
 
     ##
     ##
@@ -142,7 +141,7 @@ def read_excel_columns(file_path):
                                     sheet['N'], # Observacion3 Row 13,
                                     sheet['O'], # Observacion4 Row 14,
                                     sheet['P'],  # CP Row 15
-                                    
+                                    sheet['Q']   # FP Row 16
                                     )):
         if id >= row_con_datos:
             reg = {}
@@ -155,18 +154,17 @@ def read_excel_columns(file_path):
             reg['fp'] = row[5].value
             reg['descripcion'] = row[6].value
             reg['cantidad'] = row[7].value
-            #reg['lote'] = row[8].value
+            reg['lote'] = row[8].value
             
-            obs1 = '' if row[8].value is None else row[8].value
-            obs2 = '' if row[9].value is None else row[9].value
-            obs3 = '' if row[10].value is None else row[10].value
-            obs4 = '' if row[11].value is None else row[11].value
-            
+            obs1 = '' if row[9].value is None else row[9].value
+            obs2 = '' if row[10].value is None else row[10].value
+            obs3 = '' if row[11].value is None else row[11].value
+            obs4 = '' if row[12].value is None else row[12].value
             reg['observacion'] = f"{obs1} {obs2} {obs3} {obs4}".strip()
-            reg['direccion'] = row[12].value
-            reg['ciudad'] = row[13].value
-            reg['codigo_postal'] = 0 if row[14].value is None or row[14].value == '' else row[14].value
-            reg['provincia'] = row[15].value
+            reg['direccion'] = row[13].value
+            reg['ciudad'] = row[14].value
+            reg['codigo_postal'] = row[15].value
+            reg['provincia'] = row[16].value
             #print(f"type: {type(reg['sku'])} valor: {reg['sku']}")
             if id == 0 and not reg['nombre'].upper() == 'Razon Social'.upper():
                 raise FileFormatError('error de formato')
@@ -185,20 +183,12 @@ def read_excel_columns(file_path):
 
 def move_to_processed(file_path):
     filename = os.path.basename(file_path)
-    destination = f'{cnf.processed_path}\{filename}'
-
+    
     try:
-        os.rename(file_path, destination)
+        os.rename(file_path, f'{cnf.processed_path}\{filename}')
     except FileExistsError:
-        # Si el archivo ya existe, lo eliminamos e intentamos nuevamente
-        try:
-            os.remove(destination)
-            os.rename(file_path, destination)
-        except Exception as e:
-            raise Exception(f"No se pudo mover el archivo después de eliminar el existente: {str(e)}")
-    except Exception as e:
-        # Cualquier otro error (permisos, disco lleno, ruta no existe, etc.)
-        raise Exception(f"No se pudo mover el archivo a '{destination}': {str(e)}")
+        os.remove(f'{cnf.processed_path}\{filename}')
+        os.rename(file_path, f'{cnf.processed_path}\{filename}')
     
 
 
@@ -359,88 +349,55 @@ def formatear_fecha(fecha):
         return ""
 
 
-def main():
-    timestamp_inicio = datetime.now()
-    print(f"Inicio del proceso: {timestamp_inicio}")
 
-    
-    try:
-        
-        
-        files = read_files(cnf.getPath())
-
-        db = db.DB()
-        
-        for i, f in enumerate(files):
-            new_customers = []
-            try:
-                combos=[]
-                file=""
-                numero_factura=""
-                fecha=""
-                print (f"Procesando archivo: {f}")
-                file, fecha = write_csv(f)
-                if len(new_customers) > 0:
-                    write_new_customers(new_customers, f)
-                
-                combos_a_guardar = procesa_combos(os.path.basename(file), formatear_fecha(fecha))
-                #print(f"Guardando combos {combos_a_guardar}")
-                
-                move_to_processed(f)
-            except FileFormatError as e:
-                error_msg = f"ERROR de formato procesando archivo: {f}\nDetalle: {str(e)}"
-                print(error_msg)
-
-                # Enviar correo notificando el error en este archivo
-                try:
-                    destinatarios = [os.getenv('EMAIL_DESTINO', '')]
-                    subject = f"Error de formato en archivo: {os.path.basename(f)}"
-                    smtp.smtp.SendMail(destinatarios, subject, error_msg, "", "")
-                except Exception as mail_error:
-                    print(f"No se pudo enviar correo de notificación: {mail_error}")
-
-                continue
-            except Exception as e:
-                error_txt = traceback.format_exc()
-                print(error_txt)
-                print(e)
-
-                # Enviar correo notificando el error en este archivo
-                try:
-                    destinatarios = [os.getenv('EMAIL_DESTINO', '')]
-                    subject = f"Error procesando archivo: {os.path.basename(f)}"
-                    error_details = f"Archivo: {f}\n\nError:\n{error_txt}"
-                    smtp.smtp.SendMail(destinatarios, subject, error_details, "", "")
-                except Exception as mail_error:
-                    print(f"No se pudo enviar correo de notificación: {mail_error}")
-
-                continue
-
-        if len(combos_a_guardar)    > 0:
-            print(f"Guardando combos {combos_a_guardar}")
-            db.insert_archivo(combos_a_guardar)
-        #write_combos(combos_a_guardar)
-
-    except Exception as e:
-        print(traceback.format_exc())
-        error_txt = traceback.format_exc()
-        print(e)
-        destinatarios = []
-        destinatarios.append(os.getenv('EMAIL_DESTINO', ''))
-        
-        #destinatarios=os.getenv('EMAIL_ADMINISTRACION', '')
-        smtp.smtp.SendMail(destinatarios, f"Problemas con el proceso NOTA_VENTA",error_txt,"" , "")                
-    timestamp_fin = datetime.now()
-    time_diff = (timestamp_fin - timestamp_inicio)
-    print(f"Fin del proceso: {timestamp_fin} {time_diff}")
-
-
+timestamp_inicio = datetime.now()
+print(f"Inicio del proceso: {timestamp_inicio}")
 
 # Cargar configuración con el .env del directorio del script
 env_file = os.path.join(os.path.dirname(__file__), '.env')
 cnf = config.Config(env_path=env_file)
 combos=[]
 combos_a_guardar = []
-new_customers = []
-masters = read_master(cnf.master)
-main()
+try:
+    masters = read_master(cnf.master)
+    
+    files = read_files(cnf.getPath())
+
+    db = db.DB()
+    
+    for i, f in enumerate(files):
+        new_customers = []
+        try:
+            combos=[]
+            file=""
+            numero_factura=""
+            fecha=""
+            print (f"Procesando archivo: {f}")
+            file, fecha = write_csv(f)
+            if len(new_customers) > 0:
+                write_new_customers(new_customers, f)
+            
+            combos_a_guardar = procesa_combos(os.path.basename(file), formatear_fecha(fecha))
+            #print(f"Guardando combos {combos_a_guardar}")
+            
+            move_to_processed(f)
+        except FileFormatError as e:
+            print(f"ERROR: procesando archivo {f} es un problema {e}")
+            continue
+        except Exception as e:
+            
+            print(traceback.format_exc())
+            
+            print(e)
+
+    if len(combos_a_guardar)    > 0:
+       print(f"Guardando combos {combos_a_guardar}")
+       db.insert_archivo(combos_a_guardar)
+       #write_combos(combos_a_guardar)
+
+except Exception as e:
+    print(traceback.format_exc())
+    print(e)                
+timestamp_fin = datetime.now()
+time_diff = (timestamp_fin - timestamp_inicio)
+print(f"Fin del proceso: {timestamp_fin} {time_diff}")
