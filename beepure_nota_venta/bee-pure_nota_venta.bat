@@ -9,6 +9,6 @@ FOR /F "tokens=1-3 delims=/-" %%A IN ("%Today%") DO (
 SET FILENAMELOG=%Year%-%MonthDay%-%DayMonth%
 REM set RUN=C:\Users\ValkUser\Downloads\pdi-ce-8.0.0.0-28\data-integration
 set FILE_RUN=C:\Users\ValkUser\Documents\bee-pure\nota_venta
-python "%FILE_RUN%\main.py"  >> C:\LOGS\___bee-pure_nova_venta_%FILENAMELOG%.txt 2>&1
+python "%FILE_RUN%\main.py"  >> C:\LOGS\bee-pure_nota_venta_%FILENAMELOG%.txt 2>&1
 
 
