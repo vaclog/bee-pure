@@ -1,7 +1,9 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Agregar el directorio padre al path para poder importar common.db
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import openpyxl
 import common.config as config
 from datetime import datetime
@@ -18,119 +20,49 @@ class FileFormatError(Exception):
 # Busco Novedades archivos nuevos
 #
 def read_files(path):
-    """Scans directory for new Excel files ready for processing.
-    
-    Args:
-        path (str): Directory path to scan for files
-        
-    Returns:
-        list: List of file paths that are .xlsx files created more than 1 minute ago
-    """
-    try:
-        if not os.path.exists(path):
-            print(f"ERROR: Directory does not exist: {path}")
-            return []
-            
-        current_time = datetime.now()
-        file_list = []
-        
-        for file in os.listdir(path):
-            try:
-                file_path = os.path.join(path, file)
-                created_time = datetime.fromtimestamp(os.path.getctime(file_path))
-                time_difference = current_time - created_time
-                # Solo para los archivos que fueron creados hace mas de un minuto, 
-                # para evitar tomar un archivo que se esta creando
-                if os.path.isfile(file_path) and file.endswith('.xlsx') and time_difference.total_seconds() >= 20:            
-                    file_list.append(file_path)
-            except (OSError, IOError) as e:
-                print(f"ERROR: Cannot access file {file}: {e}")
-                continue
-                
-        return file_list
-        
-    except PermissionError as e:
-        print(f"ERROR: Permission denied accessing directory {path}: {e}")
-        return []
-    except Exception as e:
-        print(f"ERROR: Unexpected error reading directory {path}: {e}")
-        print(traceback.format_exc())
-        return []
+    current_time = datetime.now()
+    file_list = []
+    for file in  os.listdir(path):
+        file_path = os.path.join(path, file)
+        created_time = datetime.fromtimestamp(os.path.getctime(file_path))
+        time_difference = current_time - created_time
+        # Solo para los archivos que fueron creados hace mas de un minuto, 
+        # para evitar tomar un archivo que se esta creando
+        if os.path.isfile(file_path) and file.endswith('.xlsx') and time_difference.total_seconds() >= 60:            
+            file_list.append(file_path)
+    return file_list
 #
 # Leo master relacion combo sku con varios sku y sus cantidades
 #
 def read_master(file_path):
-    """Reads master Excel file containing combo SKU mappings.
-    
-    Args:
-        file_path (str): Path to master Excel file
-        
-    Returns:
-        list: List of dictionaries with combo mappings (sku_combo, sku, cantidad, descripcion)
-    """
-    try:
-        if not os.path.exists(file_path):
-            print(f"ERROR: Master file does not exist: {file_path}")
-            return []
-            
-        workbook = openpyxl.load_workbook(file_path)
-        sheet = workbook.active
+    workbook = openpyxl.load_workbook(file_path)
+    sheet = workbook.active
 
-        column_data = []
-        for id, row in enumerate(zip(sheet['A'],  # SKU_COMBO
-                       sheet['M'], #cantidad
-                       sheet['N'],  #SKU
-                       sheet['O'] # Descripcion
-                       )):
-            try:
-                reg = {}
-                reg['sku_combo'] = row[0].value
-                reg['sku'] = row[2].value
-                reg['cantidad'] = row[1].value
-                reg['descripcion'] = row[3].value
-                if reg['sku'] is not None and id > 0:
-                    column_data.append(reg)
-            except Exception as e:
-                print(f"ERROR: Processing row {id} in master file: {e}")
-                continue
+    column_data = []
+    for id, row in enumerate(zip(sheet['A'],  # SKU_COMBO
+                   sheet['M'], #cantidad
+                   sheet['N'],  #SKU
+                   sheet['O'] # Descripcion
+                   
+                   )):
+        reg = {}
+        reg['sku_combo'] = row[0].value
+        reg['sku'] = row[2].value
+        reg['cantidad'] = row[1].value
+        reg['descripcion'] = row[3].value
+        if reg['sku'] is not None and id >0:
+            column_data.append(reg)
 
-        return column_data
-        
-    except openpyxl.utils.exceptions.InvalidFileException as e:
-        print(f"ERROR: Invalid Excel file format {file_path}: {e}")
-        return []
-    except PermissionError as e:
-        print(f"ERROR: Permission denied reading master file {file_path}: {e}")
-        return []
-    except Exception as e:
-        print(f"ERROR: Unexpected error reading master file {file_path}: {e}")
-        print(traceback.format_exc())
-        return []
+    return column_data
 
 
 def existe_en_combos(combos, sku):
-    """Checks if a SKU exists in the combos list.
-    
-    Args:
-        combos (list): List of combo dictionaries
-        sku (str): SKU to search for
-        
-    Returns:
-        bool: True if SKU exists in combos, False otherwise
-    """
     for combo in combos:
         if combo['sku'] == sku:
             return True
     return False
 
 def actualizar_items(combos, sku, item):
-    """Updates items count for a specific SKU in combos list.
-    
-    Args:
-        combos (list): List of combo dictionaries
-        sku (str): SKU to update
-        item (int): New items count
-    """
     for combo in combos:
         if combo['sku'] == sku:
             combo['items'] =item
@@ -140,23 +72,10 @@ def actualizar_items(combos, sku, item):
 #       Si no es un combo solo retorno un array con el mismo sku de entrada y su cantidad.
 #
 def buscar_en_master(sku_pair, cantidad, numero_factura):
-    """Searches for SKU in master list and expands combos if found.
-    
-    If SKU is a combo, returns list of individual items with calculated quantities.
-    If not a combo, returns the original SKU with its quantity.
-    
-    Args:
-        sku_pair (dict): Dictionary with 'sku' and 'descripcion' keys
-        cantidad (int/float): Quantity requested
-        numero_factura (str): Invoice number for tracking
-        
-    Returns:
-        list: List of dictionaries with expanded SKUs and quantities
-    """
     combo_pairs = []
     items = 0
     item_combo={}
-    for m in masters:
+    for i, m in enumerate(masters):
         if m['sku_combo'] == sku_pair['sku']:
             items += 1
             rec={}
@@ -194,19 +113,6 @@ def buscar_en_master(sku_pair, cantidad, numero_factura):
 # Por cada archivo en el xlsx, se combierte a formato Valkimia
 #
 def read_excel_columns(file_path):
-    """Reads Excel file and converts it to Valkimia format.
-    
-    Processes each row of the Excel file, validates format, and expands combo SKUs.
-    
-    Args:
-        file_path (str): Path to Excel file to process
-        
-    Returns:
-        list: List of dictionaries with processed order data
-        
-    Raises:
-        FileFormatError: If file doesn't have expected header format
-    """
     workbook = openpyxl.load_workbook(file_path)
     sheet = workbook.active
 
@@ -226,11 +132,11 @@ def read_excel_columns(file_path):
                    sheet['H']  # CP
                    )):
         reg = {}
-        reg['nombre'] = row[0].value.upper()
+        reg['nombre'] = row[0].value
         reg['documento'] = row[1].value
-        reg['provincia'] = row[2].value.upper()
-        reg['ciudad'] = row[3].value.upper()
-        reg['direccion'] = row[4].value.upper()
+        reg['provincia'] = row[2].value
+        reg['ciudad'] = row[3].value
+        reg['direccion'] = row[4].value
         reg['fecha'] = row[5].value
         reg['numero_factura'] = row[6].value
         reg['sku'] = row[7].value
@@ -256,50 +162,17 @@ def read_excel_columns(file_path):
     return column_data
 
 def move_to_processed(file_path):
-    """Moves processed file to the processed directory.
+    filename = os.path.basename(file_path)
     
-    Args:
-        file_path (str): Path to file to move
-    """
     try:
-        filename = os.path.basename(file_path)
-        destination = f'{cnf.processed_path}\{filename}'
-        
-        if not os.path.exists(cnf.processed_path):
-            os.makedirs(cnf.processed_path)
-            
-        os.rename(file_path, destination)
-        print(f"File moved to processed: {filename}")
-        
+        os.rename(file_path, f'{cnf.processed_path}\{filename}')
     except FileExistsError:
-        try:
-            os.remove(destination)
-            os.rename(file_path, destination)
-            print(f"File replaced in processed directory: {filename}")
-        except (OSError, IOError) as e:
-            print(f"ERROR: Cannot replace existing file {destination}: {e}")
-    except PermissionError as e:
-        print(f"ERROR: Permission denied moving file {file_path}: {e}")
-    except Exception as e:
-        print(f"ERROR: Unexpected error moving file {file_path}: {e}")
-        print(traceback.format_exc())
+        os.remove(f'{cnf.processed_path}\{filename}')
+        os.rename(file_path, f'{cnf.processed_path}\{filename}')
     
 
 
 def customer_array_management( cliente_id,  nombre, direccion, ciudad, codigo_postal, tipo, documento, observacion, provincia):
-    """Manages new customer array by adding unique customers.
-    
-    Args:
-        cliente_id (str): Customer ID
-        nombre (str): Customer name
-        direccion (str): Customer address
-        ciudad (str): Customer city
-        codigo_postal (str): Postal code
-        tipo (str): Customer type
-        documento (str): Document number
-        observacion (str): Observations
-        provincia (str): Province
-    """
     encontrado = False
     for c in new_customers:
         if (cliente_id == c['cliente_id']):
@@ -318,11 +191,6 @@ def customer_array_management( cliente_id,  nombre, direccion, ciudad, codigo_po
                             'provincia': provincia}
                             )
 def write_combos(combos_a_guardar):
-    """Writes combo data to CSV file.
-    
-    Args:
-        combos_a_guardar (list): List of combo dictionaries to save
-    """
     f=cnf.combos_path
     salida = f"{f}\combos.csv"
     archivo_existia = os.path.exists(salida)
@@ -335,51 +203,35 @@ def write_combos(combos_a_guardar):
             writer.writerow((fila['file'], fila['numero_factura'], fila['fecha'],fila['sku'],fila['cantidad'],fila['items']))
 
 def write_csv(f):
-    """Converts Excel file to CSV format for Valkimia import.
+    excel = read_excel_columns(f)
+     
+    filename = os.path.basename(f)
     
-    Args:
-        f (str): Path to Excel file
-        
-    Returns:
-        tuple: (file_path, fecha) - processed file path and date
-    """
-    try:
-        excel = read_excel_columns(f)
-        
-        if not excel:
-            print(f"WARNING: No data found in Excel file: {f}")
-            return f, None
-         
-        filename = os.path.basename(f)
-        
-        if not os.path.exists(cnf.import_path):
-            os.makedirs(cnf.import_path)
-            
-        salida = f"{cnf.import_path}\{os.path.splitext(filename)[0]}.csv"
-        
-        with codecs.open(salida, 'w','utf8') as archivo_csv:
-            writer = csv.writer(archivo_csv, delimiter=';')
-            titulo = [ 'Nro Documento',
-                    'Fecha',
-                    'cliente ID',
-                    'Nombre',
-                    'Codigo Art',
-                    'FP',
-                    'Descripción',
-                    'cantidad',
-                    'Lote',
-                    'Obs1',
-                    'Obs2',
-                    'Obs3',
-                    'Obs4',
-                    'Dirección',
-                    'Localidad']
+    salida = f"{cnf.import_path}\{os.path.splitext(filename)[0]}.csv"
+    with codecs.open(salida, 'w','utf8') as archivo_csv:
+        writer = csv.writer(archivo_csv, delimiter=';')
+        titulo = [ 'Nro Documento',
+                  'Fecha',
+                  'cliente ID',
+                  'Nombre',
+                  'Codigo Art',
+                  'FP',
+                  'Descripción',
+                  'cantidad',
+                  'Lote',
+                  'Obs1',
+                  'Obs2',
+                  'Obs3',
+                  'Obs4',
+                  'Dirección',
+                  'Localidad']
         writer.writerow(titulo)
         for fila in excel:
             entidad_id = None
+            print(fila)
             entidad_id = db.getENT(fila['documento'], fila['provincia'],
-                                   fila['codigo_postal'], fila['direccion'], fila['observacion'])
-            
+                                   fila['codigo_postal'], fila['direccion'], fila['observacion'], fila['nombre'])
+
             if entidad_id is None:
                 
                 customer_array_management(fila['documento'],
@@ -413,76 +265,35 @@ def write_csv(f):
                  '',
                  '',
                  '',
-                 '',
-                 ''
+                 fila['direccion'],
+                 fila['provincia']
                  ]
             writer.writerow(r)
-        
-        print(f"CSV file created: {salida}")
-        return f, fila['fecha'] if 'fila' in locals() and fila else None
-        
-    except Exception as e:
-        print(f"ERROR: Failed to write CSV file for {f}: {e}")
-        print(traceback.format_exc())
-        return f, None 
+    return f, fila['fecha'] 
     
 def write_new_customers(data, f):
-    """Writes new customer data to CSV file and database.
-    
-    Args:
-        data (list): List of new customer dictionaries
-        f (str): Original file path for naming output file
-    """
-    try:
-        if not data:
-            print("WARNING: No new customer data to write")
-            return
+    filename = os.path.basename(f)
+    salida = f"{cnf.new_customer_path}/new_customer_{os.path.splitext(filename)[0]}.csv"
+    with codecs.open(salida, 'w','ansi') as archivo_csv:
+        writer = csv.writer(archivo_csv, delimiter=';')
+        titulo=[1,2,3,4,5,6,7]
+      
+        writer.writerow(titulo)
+        for d in data:
+            r= [d['cliente_id'],
+                d['nombre'],
+                d['direccion'],
+                d['localidad'],
+                d['codigo_postal'],
+                d['tipo'],
+                d['numero_documento']
+                ]
             
-        filename = os.path.basename(f)
-        
-        if not os.path.exists(cnf.new_customer_path):
-            os.makedirs(cnf.new_customer_path)
-            
-        salida = f"{cnf.new_customer_path}/new_customer_{os.path.splitext(filename)[0]}.csv"
-        
-        with codecs.open(salida, 'w','ansi') as archivo_csv:
-            writer = csv.writer(archivo_csv, delimiter=';')
-            titulo=[1,2,3,4,5,6,7]
-        
-            writer.writerow(titulo)
-            for d in data:
-                r= [d['cliente_id'],
-                    d['nombre'],
-                    d['direccion'],
-                    d['localidad'],
-                    d['codigo_postal'],
-                    d['tipo'],
-                    d['numero_documento']
-                    ]
-                
-                writer.writerow(r)
+            writer.writerow(r)
 
-                try:
-                    db.generate_insert_query(d)
-                except Exception as e:
-                    print(f"ERROR: Failed to insert customer {d.get('cliente_id', 'unknown')}: {e}")
-                
-            print(f"New customers file created: {salida}")
-        
-    except Exception as e:
-        print(f"ERROR: Failed to write new customers file for {f}: {e}")
-        print(traceback.format_exc())
+            db.generate_insert_query(d)
         
 def procesa_combos(file, fecha):
-    """Processes combo data for database insertion.
-    
-    Args:
-        file (str): Source file name
-        fecha (str): Processing date
-        
-    Returns:
-        list: List of combo records ready for database insertion
-    """
     
     for c in combos:
         registros={}
@@ -498,17 +309,6 @@ def procesa_combos(file, fecha):
 
 
 def formatear_fecha(fecha):
-    """Formats date to YYYY-MM-DD format.
-    
-    Args:
-        fecha (datetime/str): Date to format
-        
-    Returns:
-        str: Formatted date string or empty string if invalid
-        
-    Raises:
-        ValueError: If string date format is not recognized
-    """
     # Si es un objeto datetime
     if isinstance(fecha, datetime):
         return fecha.strftime('%Y-%m-%d')
@@ -529,33 +329,16 @@ def formatear_fecha(fecha):
 timestamp_inicio = datetime.now()
 print(f"Inicio del proceso: {timestamp_inicio}")
 
-# Get the .env file from the same directory as this script
-env_path = os.path.join(os.path.dirname(__file__), '.env')
-cnf = config.Config(env_path=env_path)
+env_file = os.path.join(os.path.dirname(__file__), '.env')
+cnf = config.Config(env_path=env_file)
 combos=[]
 combos_a_guardar = []
 try:
-    print("Loading master file...")
     masters = read_master(cnf.master)
-    if not masters:
-        print("ERROR: No master data loaded. Exiting.")
-        exit(1)
-    print(f"Loaded {len(masters)} master records")
     
-    print("Scanning for files to process...")
     files = read_files(cnf.getPath())
-    if not files:
-        print("No files found to process.")
-        exit(0)
-    print(f"Found {len(files)} files to process")
 
-    print("Connecting to database...")
-    try:
-        db = db.DB()
-    except Exception as e:
-        print(f"ERROR: Database connection failed: {e}")
-        print("Continuing without database operations...")
-        db = None
+    db = db.DB()
     
     for i, f in enumerate(files):
         new_customers = []
@@ -569,13 +352,10 @@ try:
             if len(new_customers) > 0:
                 write_new_customers(new_customers, f)
             
-            if fecha:
-                combos_a_guardar = procesa_combos(os.path.basename(file), formatear_fecha(fecha))
-            else:
-                print(f"WARNING: No date found for file {f}, skipping combo processing")
+            combos_a_guardar = procesa_combos(os.path.basename(file), formatear_fecha(fecha))
+            #print(f"Guardando combos {combos_a_guardar}")
             
             move_to_processed(f)
-            print(f"Successfully processed: {f}")
         except FileFormatError as e:
             print(f"ERROR: procesando archivo {f} es un problema {e}")
             continue
@@ -585,18 +365,10 @@ try:
             
             print(e)
 
-    if len(combos_a_guardar) > 0 and db is not None:
-        print(f"Saving {len(combos_a_guardar)} combo records to database")
-        try:
-            db.insert_archivo(combos_a_guardar)
-            print("Combo records saved successfully")
-        except Exception as e:
-            print(f"ERROR: Failed to save combo records: {e}")
-            print(traceback.format_exc())
-    elif len(combos_a_guardar) > 0 and db is None:
-        print("WARNING: Cannot save combos - no database connection")
-    else:
-        print("No combo records to save")
+    if len(combos_a_guardar)    > 0:
+       print(f"Guardando combos {combos_a_guardar}")
+       db.insert_archivo(combos_a_guardar)
+       #write_combos(combos_a_guardar)
 
 except Exception as e:
     print(traceback.format_exc())

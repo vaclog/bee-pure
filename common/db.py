@@ -33,8 +33,8 @@ class DB:
         except Exception as e:
             print(traceback.format_exc())
             print(e)
-            
-    def getENT(self, entidad_externa, provincia, cp, direccion, obs):
+
+    def getENT(self, entidad_externa, provincia, cp, direccion, obs, nombre):
 
         cuenta_id = os.getenv('CUENTA_ID')
         if (obs == None):
@@ -59,6 +59,7 @@ class DB:
                    WHERE ENT.EntEntIDC='{entidad_externa}'\
                      AND LCL.LclCP = {cp} \
                      AND ENT6.EntLogID  =  {cuenta_id}\
+                     AND UPPER(ENT.EntNombre) LIKE UPPER( '%{self.limpiar_string(nombre)}%') \
                      AND upper(ENT.ENTOBS) = UPPER('{self.limpiar_string(obs)}') \
                      AND UPPER(PNC.PncNom) = UPPER('{self.limpiar_string(provincia)}') \
                      AND UPPER(ENT21.LEnDir) = UPPER('{self.limpiar_string(direccion)}')"
@@ -68,9 +69,10 @@ class DB:
         with self.conn.cursor() as cursor:
             cursor.execute(sentence)
             row_data = cursor.fetchone()
+            print(row_data)
             if row_data != None:
                 
-                return row_data['entidad_id'] 
+                return row_data[0] 
             else:
                 return None
 

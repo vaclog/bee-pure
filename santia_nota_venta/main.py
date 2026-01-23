@@ -250,7 +250,7 @@ def write_csv(f):
             for fila in excel:
                 entidad_id = None
                 entidad_id = db.getENT(fila['cliente_id'], fila['provincia'],
-                                    fila['codigo_postal'], fila['direccion'], fila['observacion'])
+                                    fila['codigo_postal'], fila['direccion'], fila['observacion'], fila['nombre'])
                 
                 if entidad_id is None:
                     fila['tipo'] = 'DNI'
