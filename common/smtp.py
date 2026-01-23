@@ -1,6 +1,6 @@
 import smtplib, ssl
-import config
-
+import common.config as config
+from dotenv import load_dotenv
 from email.mime.text import MIMEText
 from email import encoders
 from email.mime.multipart import MIMEMultipart
