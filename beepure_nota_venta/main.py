@@ -143,7 +143,8 @@ def read_excel_columns(file_path):
         reg['descripcion'] = row[8].value
         reg['cantidad'] = row[9].value
         reg['tipo'] = row[10].value
-        reg['observacion'] = row[11].value.strip()
+        observacion = row[11].value
+        reg['observacion'] = observacion.strip() if observacion is not None else ''
         reg['codigo_postal'] = row[12].value
         #print(f"type: {type(reg['sku'])} valor: {reg['sku']}")
         if id == 0 and not reg['nombre'].upper() == 'Razon Social'.upper():
