@@ -137,7 +137,7 @@ def read_excel_columns(file_path):
         reg['provincia'] = row[2].value.strip() if row[2].value is not None else ''
         reg['ciudad'] = row[3].value.strip() if row[3].value is not None else ''
         reg['direccion'] = row[4].value.strip() if row[4].value is not None else ''
-        reg['fecha'] = row[5].value.strip() if row[5].value is not None else ''
+        reg['fecha'] = row[5].value
         reg['numero_factura'] = row[6].value
         reg['sku'] = row[7].value
         reg['descripcion'] = row[8].value
