@@ -11,6 +11,7 @@ import csv
 import codecs
 import common.db as db
 import traceback
+OBSERVACION_SANITIZE_TABLE = str.maketrans('\t\r\n', '   ')
 
 
 
@@ -144,7 +145,11 @@ def read_excel_columns(file_path):
         reg['cantidad'] = row[9].value
         reg['tipo'] = row[10].value
         observacion = row[11].value
-        reg['observacion'] = observacion.strip() if observacion is not None else ''
+        if observacion is None:
+            reg['observacion'] = ''
+        else:
+            observacion_text = observacion if isinstance(observacion, str) else str(observacion)
+            reg['observacion'] = observacion_text.translate(OBSERVACION_SANITIZE_TABLE).strip()
         reg['codigo_postal'] = row[12].value
         #print(f"type: {type(reg['sku'])} valor: {reg['sku']}")
         if id == 0 and not reg['nombre'].upper() == 'Razon Social'.upper():
@@ -377,3 +382,4 @@ except Exception as e:
 timestamp_fin = datetime.now()
 time_diff = (timestamp_fin - timestamp_inicio)
 print(f"Fin del proceso: {timestamp_fin} {time_diff}")
+
