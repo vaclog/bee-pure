@@ -12,7 +12,7 @@ import codecs
 import common.db as db
 import traceback
 
-
+import common.smtp as smtp
 
 class FileFormatError(Exception):
     pass
@@ -138,7 +138,7 @@ def read_excel_columns(file_path):
         if id >= row_con_datos:
             reg = {}
             reg['nombre'] = row[0].value
-            reg['documento'] = row[1].value
+            reg['documento'] = f"{row[1].value}"
             reg['provincia'] = row[16].value
             reg['ciudad'] = row[3].value
             reg['direccion'] = row[4].value
@@ -382,7 +382,8 @@ try:
 
 except Exception as e:
     print(traceback.format_exc())
-    print(e)                
+    print(e) 
+                   
 timestamp_fin = datetime.now()
 time_diff = (timestamp_fin - timestamp_inicio)
 print(f"Fin del proceso: {timestamp_fin} {time_diff}")
