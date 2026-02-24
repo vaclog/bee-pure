@@ -133,7 +133,7 @@ def read_excel_columns(file_path):
                    )):
         reg = {}
         reg['nombre'] = row[0].value.strip() if row[0].value is not None else ''
-        reg['documento'] = row[1].value.strip() if row[1].value is not None else ''
+        reg['documento'] = f'{row[1].value}'.strip() if row[1].value is not None else ''
         reg['provincia'] = row[2].value.strip() if row[2].value is not None else ''
         reg['ciudad'] = row[3].value.strip() if row[3].value is not None else ''
         reg['direccion'] = row[4].value.strip() if row[4].value is not None else ''
