@@ -142,7 +142,8 @@ def read_excel_columns(file_path):
             reg['fecha'] = row[1]
             reg['cliente_id'] = row[2]
             reg['nombre'] = row[3]
-            reg['sku'] = row[4]
+            sku = row[4]
+            reg['sku'] = sku.upper() if isinstance(sku, str) else sku
             reg['fp'] = row[5]
             reg['descripcion'] = row[6]
             reg['cantidad'] = _parse_number(row[7])
