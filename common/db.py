@@ -37,6 +37,10 @@ class DB:
     def getENT(self, entidad_externa, provincia, cp, direccion, obs, nombre):
 
         direccion = f"{direccion}"
+        provincia = f"{provincia}"
+        obs = f"{obs}"
+        nombre = f"{nombre}"
+        
         cuenta_id = os.getenv('CUENTA_ID')
         if (obs == None):
             obs = ''
