@@ -36,6 +36,7 @@ class DB:
 
     def getENT(self, entidad_externa, provincia, cp, direccion, obs, nombre):
 
+        direccion = f"{direccion}"
         cuenta_id = os.getenv('CUENTA_ID')
         if (obs == None):
             obs = ''
@@ -49,7 +50,19 @@ class DB:
         if ('BEEPURE' in direccion): #significa que es la direccion Beepure
             return 13808
 
-		
+        
+        if entidad_externa == None or entidad_externa.strip() == '':
+            print ( f'Entidad Externa vacia {entidad_externa}') 
+        
+        if nombre == None or nombre.strip() == '':
+            print ( f'Nombre vacio {nombre}') 
+            
+        if direccion == None or direccion.strip() == '':
+            print ( f'Direccion vacia {direccion}') 
+        if provincia == None or provincia.strip() == '':
+            print ( f'Provincia vacia {provincia}') 
+            
+        
         sentence=f"SELECT ENT.EntID as entidad_id\
                     FROM ENT\
                     JOIN ENT6 ON ENT6.EntID = ENT.EntID \
