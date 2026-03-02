@@ -16,4 +16,4 @@ call "%FILE_RUN%\.venv\Scripts\activate.bat"
 REM Instalar requirements
 pip install -r "%FILE_RUN%\requirements.txt"
 
-python "%FILE_RUN%\main.py"  >> C:\LOGS\vitalgy_nota_venta_%FILENAMELOG%.txt 2>&1
+python "%FILE_RUN%\main.py"  >> C:\LOGS\ialcom_nota_venta_%FILENAMELOG%.txt 2>&1
