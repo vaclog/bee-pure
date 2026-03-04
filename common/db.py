@@ -54,7 +54,7 @@ class DB:
         if ('BEEPURE' in direccion): #significa que es la direccion Beepure
             return 13808
 
-        
+        entidad_externa = f"{entidad_externa}"
         if entidad_externa == None or entidad_externa.strip() == '':
             print ( f'Entidad Externa vacia {entidad_externa}') 
         
