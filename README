@@ -1,0 +1,37 @@
+## Exportador `ov_order_queue` (CSV)
+Este script CLI toma los registros pendientes de la tabla **`ov_order_queue`** (MySQL/MariaDB) y genera los CSV finales para Valkimia.
+
+Qué hace:
+* Busca filas con `processed_at IS NULL` y `status IN ('pending','ready')`.
+* Genera:
+  * `IMPORT_PATH/import_<documento>.csv` (desde `csv_valkimia`, UTF-8)
+  * `NEW_CUSTOMER_PATH/new_customer_<documento>.csv` (desde `csv_new_clients`, si existe, latin-1)
+* Incrementa `attempt_count` y marca el registro como procesado (`processed_at=NOW()`, `status='processed'`).
+* Si falla, deja `status='error'` y guarda el detalle en `last_error`.
+
+Ejecutar:
+python export_ov_queue.py --limit 50
+
+Simular (no escribe ni marca):
+python export_ov_queue.py --limit 50 --dry-run
+
+Requiere variables de entorno: 
+`MYSQL_HOST, MYSQL_PORT, MYSQL_DB, MYSQL_USER, MYSQL_PASSWORD, IMPORT_PATH, NEW_CUSTOMER_PATH`.
+
+
+# MariaDB
+$env:MYSQL_HOST="127.0.0.1"
+$env:MYSQL_PORT="3306"
+$env:MYSQL_DB="vaclog"
+$env:MYSQL_USER="vaclog"
+$env:MYSQL_PASSWORD="vaclogpass"
+
+# Paths
+$env:IMPORT_PATH="C:/Dev/workspace/deposito_ov/out/import"
+$env:NEW_CUSTOMER_PATH="C:/Dev/workspace/deposito_ov/out/new_customers"
+
+# SIMULACION
+python export_ov_queue.py --limit 5 --dry-run
+
+# CSV pero sin SQL SERVER
+python export_ov_queue.py --limit 5 --export-only
