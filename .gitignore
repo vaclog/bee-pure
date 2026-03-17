@@ -10,5 +10,6 @@ combos
 *.xls
 
 .venv/
+out/
 
 to_process
