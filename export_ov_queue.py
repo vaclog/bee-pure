@@ -1,8 +1,11 @@
+# export_ov_queue.py
 import os
 import sys
 import csv
 import io
 import traceback
+from datetime import datetime
+import re
 
 from common import config as cnf
 from common.mysql_db import get_mysql_conn
@@ -44,9 +47,38 @@ def parse_semicolon_csv(text: str):
     return list(reader)
 
 
+def sanitize_filename_part(value: str) -> str:
+    """
+    Convierte un texto a un fragmento seguro para nombre de archivo:
+    - Reemplaza espacios por '_'
+    - Elimina caracteres no permitidos en Windows/Linux
+    - Colapsa múltiples '_' y recorta longitud
+    """
+    if value is None:
+        value = ""
+    value = str(value).strip()
+    value = value.replace(" ", "_")
+    value = re.sub(r"[^A-Za-z0-9._-]", "", value)
+    value = re.sub(r"_+", "_", value).strip("._-")
+    return (value or "cliente")[:60]
+
+
+def build_output_filename(client_nombre: str, queue_id: int, suffix: str) -> str:
+    """
+    Requisito:
+      <nombre_cliente>_<ID>_<TIMESTAMP>.csv
+    """
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_name = sanitize_filename_part(client_nombre)
+    return f"{safe_name}_{queue_id}_{ts}{suffix}.csv"
+
+
 def process_queue_row(mysql_cur, row: dict, write_files: bool, mark_processed: bool):
     queue_id = row["id"]
     documento = row["documento"]  # ej: BATCH-7
+
+    # Requisito: <nombre_cliente>_<ID>_<TIMESTAMP>.csv
+    client_nombre = row.get("client_nombre")  # debe existir en la tabla ov_order_queue
 
     csv_valkimia = row["csv_valkimia"] or ""
     csv_new_clients = row.get("csv_new_clients") or ""
@@ -56,7 +88,8 @@ def process_queue_row(mysql_cur, row: dict, write_files: bool, mark_processed: b
 
     # 1) CSV Valkimia (UTF-8)
     ensure_dir(import_path)
-    valkimia_path = os.path.join(import_path, VALKIMIA_FILENAME_FMT.format(documento=documento))
+    valkimia_filename = build_output_filename(client_nombre, queue_id, suffix="")  # .csv se agrega en build_output_filename
+    valkimia_path = os.path.join(import_path, valkimia_filename)
     if write_files:
         write_text_file(valkimia_path, csv_valkimia, encoding="utf-8")
 
@@ -65,10 +98,8 @@ def process_queue_row(mysql_cur, row: dict, write_files: bool, mark_processed: b
     new_clients_count = 0
     if csv_new_clients and csv_new_clients.strip():
         ensure_dir(new_customer_root)
-        new_customer_path = os.path.join(
-            new_customer_root,
-            NEW_CUSTOMER_FILENAME_FMT.format(documento=documento),
-        )
+        new_customer_filename = build_output_filename(client_nombre, queue_id, suffix="")
+        new_customer_path = os.path.join(new_customer_root, new_customer_filename)
         if write_files:
             write_text_file(new_customer_path, csv_new_clients, encoding="latin-1")
 
