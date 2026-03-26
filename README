@@ -22,9 +22,9 @@ Requiere variables de entorno:
 # MariaDB
 $env:MYSQL_HOST="127.0.0.1"
 $env:MYSQL_PORT="3306"
-$env:MYSQL_DB="vaclog"
-$env:MYSQL_USER="vaclog"
-$env:MYSQL_PASSWORD="vaclogpass"
+$env:MYSQL_DB="deposito_prod"
+$env:MYSQL_USER="dwh_hr"
+$env:MYSQL_PASSWORD="prueba"
 
 # Paths
 $env:IMPORT_PATH="C:/Dev/workspace/deposito_ov/out/import"
