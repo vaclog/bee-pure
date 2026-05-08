@@ -1,0 +1,5 @@
+Nro Documento;Fecha;cliente ID;Nombre;Codigo Art;FP;Descripción;cantidad;Lote;Obs1;Obs2;Obs3;Obs4;Dirección;Localidad
+OV-0001;2026-02-17;100001;CF - ML;02495;1;desc1;3;;prueba;;;;CNEL. RAMON LISTA 5168;La Colonia
+OV-0003;2026-02-17;100475;CARLOS CASSAB S. A.;00140;1;dess3;1;;;;pruebe3;;Sarmiento 100;Mendoza
+OV-0005;2023-10-16;12274;CELULARES & ETCETERA;02200;1;desm5;1;;;;;prueba4;Mitre 300;Tigre
+OV-0006;2026-02-17;95758;PHYNX S.A.;02487;1;desr6;5;;;;;;Rivadavia 400;Tigre
