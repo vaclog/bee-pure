@@ -76,30 +76,31 @@ class VkmClientTests(unittest.TestCase):
 
     def test_missing_cuenta_id_has_clear_error(self):
         client = VkmClient(_config(cuenta_id=""), dry_run=False)
+        client.connection = FakeConnection([])
 
-        with self.assertRaisesRegex(RuntimeError, "VKM_CUENTA_ID"):
-            client.connect()
+        with self.assertRaisesRegex(RuntimeError, "vkm_cuenta_id"):
+            client.create_or_confirm_customer(_row())
 
     def test_customer_exists_executes_parameterized_query(self):
         cursor = FakeCursor(fetchone_result=(123,))
-        client = VkmClient(_config(), dry_run=False)
+        client = VkmClient(_config(cuenta_id="42"), dry_run=False)
         client.connection = FakeConnection([cursor])
 
-        result = client.customer_exists("C001")
+        result = client.customer_exists("C001", _row(vkm_cuenta_id="77"))
 
         self.assertEqual(result, 123)
         query, params = cursor.execute_calls[0]
         self.assertIn("ENT.EntEntIDC = ?", query)
         self.assertIn("ENT6.EntLogID = ?", query)
-        self.assertEqual(params, ("C001", "42"))
+        self.assertEqual(params, ("C001", "77"))
 
     def test_create_or_confirm_customer_does_not_insert_existing_customer(self):
         exists_cursor = FakeCursor(fetchone_result=(123,))
         connection = FakeConnection([exists_cursor])
-        client = VkmClient(_config(), dry_run=False)
+        client = VkmClient(_config(cuenta_id=""), dry_run=False)
         client.connection = connection
 
-        result = client.create_or_confirm_customer(_row())
+        result = client.create_or_confirm_customer(_row(vkm_cuenta_id="88"))
 
         self.assertEqual(result["status"], "exists")
         self.assertEqual(connection.commit_calls, 0)
@@ -111,7 +112,7 @@ class VkmClientTests(unittest.TestCase):
         client = VkmClient(_config(cuenta_id="99"), dry_run=False)
         client.connection = connection
 
-        result = client.create_or_confirm_customer(_row())
+        result = client.create_or_confirm_customer(_row(vkm_cuenta_id="88"))
 
         self.assertEqual(result["status"], "created")
         self.assertEqual(connection.commit_calls, 1)
@@ -132,7 +133,20 @@ class VkmClientTests(unittest.TestCase):
         self.assertEqual(params[25], "vaclog")
         self.assertEqual(params[27], "1")
         self.assertEqual(params[33], "Obs")
-        self.assertEqual(params[34], "99")
+        self.assertEqual(params[34], "88")
+
+    def test_create_or_confirm_customer_uses_config_fallback_when_row_has_no_vkm_cuenta_id(self):
+        exists_cursor = FakeCursor(fetchone_result=None)
+        insert_cursor = FakeCursor()
+        client = VkmClient(_config(cuenta_id="99"), dry_run=False)
+        client.connection = FakeConnection([exists_cursor, insert_cursor])
+
+        client.create_or_confirm_customer(_row())
+
+        exists_params = exists_cursor.execute_calls[0][1]
+        insert_params = insert_cursor.execute_calls[0][1]
+        self.assertEqual(exists_params, ("C001", "99"))
+        self.assertEqual(insert_params[34], "99")
 
     def test_strings_are_cleaned_and_truncated(self):
         self.assertEqual(truncate_vkm_text("A'B\"C/á", 10), "ABC")

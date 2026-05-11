@@ -74,7 +74,6 @@ class VkmClient:
                 "VKM_SQLSERVER_USER": self.config.user,
                 "VKM_SQLSERVER_PASSWORD": self.config.password,
                 "VKM_SQLSERVER_DRIVER": self.config.driver,
-                "VKM_CUENTA_ID": self.config.cuenta_id,
             }.items()
             if not value
         ]
@@ -101,10 +100,18 @@ class VkmClient:
             raise RuntimeError("No hay conexion VKM activa. Ejecute connect() primero.")
         return self.connection
 
-    def customer_exists(self, cliente_id):
+    def _resolve_vkm_cuenta_id(self, row=None):
+        row = row or {}
+        vkm_cuenta_id = truncate_vkm_text(row.get("vkm_cuenta_id") or self.config.cuenta_id, 20)
+        if not vkm_cuenta_id:
+            raise RuntimeError("vkm_cuenta_id es requerido en la fila o VKM_CUENTA_ID debe estar configurado.")
+        return vkm_cuenta_id
+
+    def customer_exists(self, cliente_id, row=None):
         if self.dry_run:
             return False
 
+        vkm_cuenta_id = self._resolve_vkm_cuenta_id(row)
         query = """
             SELECT TOP 1 ENT.EntID
             FROM ENT
@@ -116,7 +123,7 @@ class VkmClient:
             cursor.execute(
                 query,
                 truncate_vkm_text(cliente_id, 20),
-                truncate_vkm_text(self.config.cuenta_id, 20),
+                vkm_cuenta_id,
             )
             row = cursor.fetchone()
         if row is None:
@@ -128,11 +135,12 @@ class VkmClient:
             return {"cliente_id": row["cliente_id"], "status": "dry_run"}
 
         cliente_id = truncate_vkm_text(row.get("cliente_id"), 20)
-        existing_id = self.customer_exists(cliente_id)
+        vkm_cuenta_id = self._resolve_vkm_cuenta_id(row)
+        existing_id = self.customer_exists(cliente_id, row)
         if existing_id:
             return {"cliente_id": cliente_id, "status": "exists", "vkm_id": existing_id}
 
-        values = self._build_intentidad_values(row)
+        values = self._build_intentidad_values(row, vkm_cuenta_id)
         placeholders = ", ".join("?" for _ in INTENTIDAD_COLUMNS)
         columns = ", ".join(f"[{column}]" for column in INTENTIDAD_COLUMNS)
         query = f"INSERT INTO {INTENTIDAD_TABLE} ({columns}) VALUES ({placeholders})"
@@ -141,8 +149,9 @@ class VkmClient:
         self.connection.commit()
         return {"cliente_id": cliente_id, "status": "created"}
 
-    def _build_intentidad_values(self, row):
+    def _build_intentidad_values(self, row, vkm_cuenta_id=None):
         cliente_id = truncate_vkm_text(row.get("cliente_id"), 20)
+        vkm_cuenta_id = vkm_cuenta_id or self._resolve_vkm_cuenta_id(row)
         return (
             cliente_id,
             None,
@@ -178,7 +187,7 @@ class VkmClient:
             None,
             None,
             truncate_vkm_text(row.get("observacion"), 1024),
-            truncate_vkm_text(self.config.cuenta_id, 20),
+            truncate_vkm_text(vkm_cuenta_id, 20),
         )
 
     def close(self):

@@ -106,6 +106,7 @@ class CsvReaderTests(unittest.TestCase):
                     "observacion": "Obs",
                     "tipo": "80",
                     "numero_documento": "123",
+                    "vkm_cuenta_id": "987",
                 }
             ],
             request_id="req/1",
@@ -117,7 +118,7 @@ class CsvReaderTests(unittest.TestCase):
         with path.open("r", encoding="utf-8", newline="") as handle:
             content = handle.read()
             self.assertIn(";".join(BACKUP_HEADERS), content)
-            self.assertIn("C001;Cliente Uno;Calle 1;Rosario;Santa Fe;2000;Obs;80;123", content)
+            self.assertIn("C001;Cliente Uno;Calle 1;Rosario;Santa Fe;2000;Obs;80;123;987", content)
 
     def test_write_customers_backup_csv_fills_missing_optional_columns(self):
         self.temp_dir = Path(tempfile.mkdtemp())
@@ -144,6 +145,7 @@ class CsvReaderTests(unittest.TestCase):
         self.assertEqual(row["observacion"], "")
         self.assertEqual(row["tipo"], "")
         self.assertEqual(row["numero_documento"], "")
+        self.assertEqual(row["vkm_cuenta_id"], "")
 
 
 if __name__ == "__main__":

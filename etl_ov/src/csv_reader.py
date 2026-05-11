@@ -23,6 +23,7 @@ BACKUP_HEADERS = (
     "observacion",
     "tipo",
     "numero_documento",
+    "vkm_cuenta_id",
 )
 
 

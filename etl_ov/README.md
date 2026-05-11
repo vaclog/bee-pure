@@ -153,7 +153,7 @@ VKM_SQLSERVER_DATABASE=VKM_Interfaz_Prod
 VKM_SQLSERVER_USER=usuario
 VKM_SQLSERVER_PASSWORD=password
 VKM_SQLSERVER_DRIVER=ODBC Driver 17 for SQL Server
-VKM_CUENTA_ID=cuenta-logistica-vkm
+VKM_CUENTA_ID=cuenta-logistica-vkm-opcional
 
 ETL_OV_NEW_CUSTOMER_PATH=C:\..\etl_ov\out\new_customers
 ETL_OV_DRY_RUN=true
@@ -164,7 +164,9 @@ Importante:
 
 - No versionar `.env`.
 - `DEPOSITO_API_TOKEN` debe coincidir con `DEPOSITO_ETL_API_TOKEN` configurado en el sistema del depósito.
-- `VKM_CUENTA_ID` debe ser la cuenta/logística de VKM equivalente a `CUENTA_ID` del proceso legacy.
+- En modo automático, la cuenta VKM sale de `Client.vkm_cliente_id` y viaja como `vkm_cuenta_id` en cada fila exportada.
+- `CustomerSyncQueue.client_id` identifica la cuenta interna `clients.id`; no es el valor que se informa a VKM.
+- `VKM_CUENTA_ID` queda sólo como fallback opcional para modo manual/transición si el CSV no trae `vkm_cuenta_id`.
 - `ETL_OV_DRY_RUN=true` es seguro para pruebas porque no toca backend ni VKM.
 
 ### 7. Validar instalación sin tocar sistemas externos
@@ -249,7 +251,7 @@ Antes de dejarlo productivo, confirmar:
 - `DEPOSITO_API_BASE_URL` apunta al backend correcto;
 - `DEPOSITO_API_TOKEN` coincide con `DEPOSITO_ETL_API_TOKEN`;
 - credenciales VKM correctas;
-- `VKM_CUENTA_ID` correcto;
+- `Client.vkm_cliente_id` configurado para las cuentas a procesar;
 - `ETL_OV_DRY_RUN=false` para ejecución real;
 - `ETL_OV_NEW_CUSTOMER_PATH` existe o puede ser creado por el proceso;
 - `python -m unittest discover tests` pasa OK;
@@ -331,6 +333,7 @@ Columnas requeridas:
 - `codigo_postal`
 
 El modo manual es sólo un respaldo operativo. No consulta pendientes al backend y no marca `clients_csv_downloaded`.
+Puede incluir `vkm_cuenta_id`; si no lo incluye, el ETL usa `VKM_CUENTA_ID` como fallback.
 
 ## Configuración
 
@@ -346,7 +349,7 @@ Variables:
 - `VKM_SQLSERVER_USER`: usuario SQL Server.
 - `VKM_SQLSERVER_PASSWORD`: password SQL Server.
 - `VKM_SQLSERVER_DRIVER`: driver ODBC. Por defecto `ODBC Driver 17 for SQL Server`.
-- `VKM_CUENTA_ID`: cuenta/logística usada en VKM, equivalente a `CUENTA_ID` del legacy.
+- `VKM_CUENTA_ID`: fallback opcional para modo manual/transición si la fila no trae `vkm_cuenta_id`.
 - `ETL_OV_NEW_CUSTOMER_PATH`: carpeta local opcional para guardar el CSV de respaldo de clientes exportados.
 - `ETL_OV_DRY_RUN`: `true` por defecto.
 - `ETL_OV_LOG_LEVEL`: `INFO` por defecto.
@@ -361,7 +364,7 @@ Existencia:
 
 ```text
 ENT.EntEntIDC = cliente_id
-ENT6.EntLogID = VKM_CUENTA_ID
+ENT6.EntLogID = vkm_cuenta_id
 ```
 
 Alta:
@@ -379,7 +382,7 @@ Campos principales:
 - `INEntPrvNom`: `provincia`
 - `INEntCP`: `codigo_postal`
 - `INEntObs`: `observacion`
-- `INEntLogE`: `VKM_CUENTA_ID`
+- `INEntLogE`: `vkm_cuenta_id`
 
 El insert mantiene los valores fijos del legacy:
 
@@ -629,6 +632,7 @@ El CSV usa delimitador `;` y columnas:
 - `observacion`
 - `tipo`
 - `numero_documento`
+- `vkm_cuenta_id`
 
 Este archivo no es la fuente principal del proceso automático. La fuente principal es la API del sistema del depósito.
 

@@ -29,6 +29,7 @@ def _valid_row(cliente_id="C001"):
         "localidad": "Rosario",
         "provincia": "Santa Fe",
         "codigo_postal": "2000",
+        "vkm_cuenta_id": "987",
     }
 
 
@@ -132,13 +133,13 @@ class MainFlowTests(unittest.TestCase):
             generated_files = list(Path(temp_dir).glob("clientes_nuevos_*.csv"))
             self.assertEqual(len(generated_files), 1)
             content = generated_files[0].read_text(encoding="utf-8")
-            self.assertIn("cliente_id;nombre;direccion;localidad;provincia;codigo_postal;observacion;tipo;numero_documento", content)
-            self.assertIn("C001;Cliente Uno;Calle 1;Rosario;Santa Fe;2000;;;", content)
+            self.assertIn("cliente_id;nombre;direccion;localidad;provincia;codigo_postal;observacion;tipo;numero_documento;vkm_cuenta_id", content)
+            self.assertIn("C001;Cliente Uno;Calle 1;Rosario;Santa Fe;2000;;;;987", content)
 
     def test_manual_mode_does_not_export_from_dashboard(self):
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", newline="", suffix=".csv", delete=False) as handle:
-            handle.write("cliente_id;nombre;direccion;localidad;provincia;codigo_postal\n")
-            handle.write("C001;Cliente Uno;Calle 1;Rosario;Santa Fe;2000\n")
+            handle.write("cliente_id;nombre;direccion;localidad;provincia;codigo_postal;vkm_cuenta_id\n")
+            handle.write("C001;Cliente Uno;Calle 1;Rosario;Santa Fe;2000;987\n")
             csv_path = handle.name
 
         calls = []
@@ -162,7 +163,7 @@ class MainFlowTests(unittest.TestCase):
                 pass
 
             def create_or_confirm_customer(self, _row):
-                pass
+                calls.append(("vkm_cuenta_id", _row["vkm_cuenta_id"]))
 
             def close(self):
                 pass
@@ -174,7 +175,8 @@ class MainFlowTests(unittest.TestCase):
             Path(csv_path).unlink()
 
         self.assertEqual(exit_code, 0)
-        self.assertEqual(calls, [("confirm", "req-manual", "confirmed", "")])
+        self.assertIn(("vkm_cuenta_id", "987"), calls)
+        self.assertEqual(calls[-1], ("confirm", "req-manual", "confirmed", ""))
         write_csv_mock.assert_not_called()
 
     def test_final_confirmation_sends_partial_when_some_rows_fail(self):
