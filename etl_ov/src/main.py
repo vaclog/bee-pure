@@ -1,6 +1,8 @@
 import argparse
 from dataclasses import dataclass
 import logging
+import os
+from pathlib import Path
 import sys
 
 from .config import load_settings
@@ -14,6 +16,8 @@ EXIT_SUCCESS = 0
 EXIT_FUNCTIONAL_ERROR = 1
 EXIT_TECHNICAL_ERROR = 2
 EXIT_PARTIAL = 3
+MAX_AUTOMATIC_EXPORT_CYCLES = 100
+AUTOMATIC_LOCK_FILENAME = ".etl_ov.automatic.lock"
 
 
 @dataclass(frozen=True)
@@ -21,9 +25,13 @@ class ProcessingResult:
     ok_count: int
     error_count: int
     errors: list
+    row_results: list = None
 
 
 def determine_dashboard_status(result):
+    statuses = {item.get("status") for item in (result.row_results or []) if item.get("status")}
+    if "queued" in statuses and result.error_count == 0:
+        return "queued"
     if result.ok_count > 0 and result.error_count == 0:
         return "confirmed"
     if result.ok_count > 0 and result.error_count > 0:
@@ -32,7 +40,7 @@ def determine_dashboard_status(result):
 
 
 def exit_code_for_status(status):
-    if status == "confirmed":
+    if status in ("confirmed", "queued"):
         return EXIT_SUCCESS
     if status == "partial":
         return EXIT_PARTIAL
@@ -42,13 +50,61 @@ def exit_code_for_status(status):
 def process_rows(rows, vkm_client):
     ok_count = 0
     errors = []
+    row_results = []
     for index, row in enumerate(rows, start=2):
         try:
-            vkm_client.create_or_confirm_customer(row)
+            result = vkm_client.create_or_confirm_customer(row)
+            row_results.append({"row": row, **(result or {})})
             ok_count += 1
         except Exception as exc:
+            row_results.append({"row": row, "status": "error", "error": str(exc)})
             errors.append(f"Fila {index} cliente_id={row.get('cliente_id', '')}: {exc}")
-    return ProcessingResult(ok_count=ok_count, error_count=len(errors), errors=errors)
+    return ProcessingResult(ok_count=ok_count, error_count=len(errors), errors=errors, row_results=row_results)
+
+
+def confirm_processed_rows(deposito_client, request_id, result, error_detail):
+    rows_have_ids = any((item.get("row") or {}).get("id") for item in (result.row_results or []))
+    if not rows_have_ids:
+        status = determine_dashboard_status(result)
+        deposito_client.confirm_customer_sync(request_id=request_id, status=status, error_detail=error_detail)
+        return status
+
+    sent_status = "confirmed"
+    for status in ("confirmed", "queued"):
+        ids = [
+            (item.get("row") or {}).get("id")
+            for item in (result.row_results or [])
+            if item.get("status") == status and (item.get("row") or {}).get("id")
+        ]
+        if ids:
+            deposito_client.confirm_customer_sync(status=status, ids=ids)
+            if status == "queued":
+                sent_status = "queued"
+
+    error_ids = [
+        (item.get("row") or {}).get("id")
+        for item in (result.row_results or [])
+        if item.get("status") == "error" and (item.get("row") or {}).get("id")
+    ]
+    if error_ids:
+        deposito_client.confirm_customer_sync(status="error", ids=error_ids, error_detail=error_detail)
+        sent_status = "partial" if result.ok_count else "error"
+    return sent_status
+
+
+def verify_queued_customers(deposito_client, vkm_client, client_id, limit, logger):
+    queued_result = deposito_client.list_queued_customers(client_id=client_id, limit=limit)
+    queued_rows = queued_result.get("rows") or []
+    confirmed_ids = []
+    for row in queued_rows:
+        result = vkm_client.verify_queued_customer(row)
+        if result.get("status") == "confirmed" and row.get("id"):
+            confirmed_ids.append(row["id"])
+
+    if confirmed_ids:
+        deposito_client.confirm_customer_sync(status="confirmed", ids=confirmed_ids)
+    logger.info("Clientes en cola verificados=%s confirmados=%s", len(queued_rows), len(confirmed_ids))
+    return {"checked": len(queued_rows), "confirmed": len(confirmed_ids)}
 
 
 def build_error_detail(errors, limit=20):
@@ -68,6 +124,32 @@ def _write_backup_csv_if_enabled(settings, rows, request_id, logger):
     backup_path = write_customers_backup_csv(settings.new_customer_path, rows, request_id=request_id)
     logger.info("CSV local de respaldo generado: %s", backup_path)
     return backup_path
+
+
+def _automatic_lock_path():
+    return Path(__file__).resolve().parents[1] / AUTOMATIC_LOCK_FILENAME
+
+
+def _acquire_automatic_run_lock(logger):
+    lock_path = _automatic_lock_path()
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        logger.warning("Ya existe una ejecucion automatica en curso. Se omite esta corrida: %s", lock_path)
+        return None
+
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(str(os.getpid()))
+    return lock_path
+
+
+def _release_automatic_run_lock(lock_path):
+    if not lock_path:
+        return
+    try:
+        Path(lock_path).unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def run_manual_mode(args, settings, dry_run, logger):
@@ -97,7 +179,55 @@ def run_automatic_mode(args, settings, dry_run, logger):
         logger.info("Dry-run activo: no consulta API deposito, no conecta a VKM ni informa confirmacion.")
         return EXIT_SUCCESS
 
-    deposito_client = DepositoApiClient(settings.deposito_api, dry_run=False)
+    lock_path = _acquire_automatic_run_lock(logger)
+    if lock_path is None:
+        return EXIT_SUCCESS
+
+    try:
+        deposito_client = DepositoApiClient(settings.deposito_api, dry_run=False)
+        vkm_client = VkmClient(settings.vkm, dry_run=False)
+        try:
+            vkm_client.connect()
+            verify_queued_customers(deposito_client, vkm_client, args.client_id, args.limit, logger)
+        except Exception as exc:
+            logger.exception("Error verificando clientes en cola VKM: %s", exc)
+            return EXIT_TECHNICAL_ERROR
+        finally:
+            vkm_client.close()
+
+        if args.client_id:
+            exit_code, _processed_rows = export_and_process_pending_customers(
+                deposito_client,
+                args,
+                settings,
+                logger,
+            )
+            return exit_code
+
+        total_rows = 0
+        for cycle in range(1, MAX_AUTOMATIC_EXPORT_CYCLES + 1):
+            exit_code, processed_rows = export_and_process_pending_customers(
+                deposito_client,
+                args,
+                settings,
+                logger,
+                cycle=cycle,
+            )
+            total_rows += processed_rows
+            if processed_rows == 0:
+                logger.info("No hay mas clientes pendientes para procesar. total_procesados=%s", total_rows)
+                return EXIT_SUCCESS
+            if exit_code != EXIT_SUCCESS:
+                logger.info("Corte de ciclo automatico por resultado funcional exit_code=%s total_procesados=%s", exit_code, total_rows)
+                return exit_code
+
+        logger.error("Corte preventivo: se alcanzo el maximo de ciclos automaticos (%s).", MAX_AUTOMATIC_EXPORT_CYCLES)
+        return EXIT_TECHNICAL_ERROR
+    finally:
+        _release_automatic_run_lock(lock_path)
+
+
+def export_and_process_pending_customers(deposito_client, args, settings, logger, cycle=None):
     export_result = deposito_client.export_pending_customers(
         client_id=args.client_id,
         request_id=args.request_id,
@@ -106,23 +236,26 @@ def run_automatic_mode(args, settings, dry_run, logger):
     request_id = export_result.get("request_id") or args.request_id
     rows = export_result.get("rows") or []
     logger.info(
-        "Clientes exportados desde backend request_id=%s filas=%s updated=%s",
+        "Clientes exportados desde backend ciclo=%s request_id=%s client_id=%s client_ids=%s filas=%s updated=%s",
+        cycle or 1,
         request_id,
+        export_result.get("client_id") or "",
+        export_result.get("client_ids") or [],
         len(rows),
         export_result.get("updated", 0),
     )
     if not rows:
         logger.info("No hay clientes pendientes para procesar.")
-        return EXIT_SUCCESS
+        return EXIT_SUCCESS, 0
 
     _write_backup_csv_if_enabled(settings, rows, request_id, logger)
 
     csv_result = validate_customer_rows(rows, headers=rows[0].keys())
     if not csv_result.is_valid:
         _log_csv_errors(logger, csv_result)
-        return EXIT_FUNCTIONAL_ERROR
+        return EXIT_FUNCTIONAL_ERROR, len(rows)
 
-    return process_and_confirm(csv_result.rows, request_id, settings, logger)
+    return process_and_confirm(csv_result.rows, request_id, settings, logger), len(rows)
 
 
 def process_and_confirm(rows, request_id, settings, logger):
@@ -131,9 +264,8 @@ def process_and_confirm(rows, request_id, settings, logger):
     try:
         vkm_client.connect()
         result = process_rows(rows, vkm_client)
-        status = determine_dashboard_status(result)
         error_detail = build_error_detail(result.errors)
-        deposito_client.confirm_customer_sync(request_id, status, error_detail)
+        status = confirm_processed_rows(deposito_client, request_id, result, error_detail)
         logger.info(
             "Resultado enviado request_id=%s status=%s ok=%s error=%s",
             request_id,

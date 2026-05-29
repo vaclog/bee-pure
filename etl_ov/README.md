@@ -238,7 +238,7 @@ cd C:\..\etl_ov
 .\.venv\Scripts\python.exe -m src.main
 ```
 
-En este caso el backend selecciona una cuenta con clientes pendientes.
+En este caso el ETL procesa clientes pendientes de todas las cuentas exportables.
 
 ### 11. Checklist final
 
@@ -262,7 +262,6 @@ Antes de dejarlo productivo, confirmar:
 El alta de clientes nuevos se gestiona con una cola interna y un proceso automático.
 
 Flujo completo:
-
 ```text
 BackOffice importa clientes
   ↓
@@ -274,35 +273,38 @@ Proceso automático marca clients_csv_downloaded con historial
   ↓
 ETL procesa alta en VKM
   ↓
-ETL confirma etl_confirmed / etl_partial / etl_error
+ETL informa etl_queued tras insertar en IntEntidad
+  ↓
+ETL confirma etl_confirmed cuando VKM pasa INEEst a 2
   ↓
 Dashboard OV libera CSV OV si corresponde
 ```
 
-Estados principales:
+| Valor técnico | Texto en admin | Qué significa |
+| --- | --- | --- |
+| `pending_export` | Pendiente exportar clientes | Estado inicial/default. Cliente nuevo dado de alta en BackOffice y pendiente de ser tomado por el ETL. |
+| `clients_csv_downloaded` | CSV clientes descargado | El ETL ya tomó/exportó el cliente para procesarlo. Todavía no fue insertado ni confirmado en VKM. |
+| `etl_queued` | En cola VKM | El ETL insertó el cliente en `IntEntidad` con `INEEst=1`. Es un estado intermedio: VKM todavía no lo incorporó. |
+| `etl_confirmed` | ETL clientes confirmado | VKM ya incorporó el cliente y el ETL verificó `INEEst=2`. Recién en este estado se considera confirmado. |
+| `etl_partial` | ETL clientes parcial | El ETL confirmó parcialmente; hubo alguna diferencia, procesamiento incompleto o caso que requiere seguimiento. |
+| `etl_error` | ETL clientes error | El ETL falló o devolvió error. |
 
-- `pending_export`: el cliente fue dado de alta en BackOffice y está pendiente de exportación interna.
-- `clients_csv_downloaded`: el proceso automático tomó el cliente para procesarlo.
-- `etl_confirmed`: el cliente fue confirmado correctamente.
-- `etl_partial`: hubo confirmación parcial o alguna observación.
-- `etl_error`: hubo error en el alta o confirmación.
+Notas:
+
+- `pending_export` es el estado inicial/default.
+- `etl_queued` puede permanecer pendiente si VKM nunca cambia `INEEst` de `1` a `2`.
+- El Dashboard OV muestra `REVISAR` cuando un cliente queda en `etl_queued` por más de 5 minutos.
 
 El Dashboard OV sólo libera el `CSV OV` cuando los clientes necesarios para ese batch están confirmados correctamente.
 
 ## Flujo automático
 
-1. BackOffice registra clientes nuevos en `CustomerSyncQueue` con estado `pending_export`.
-2. El ETL llama al backend para tomar pendientes y marcarlos `clients_csv_downloaded`.
-3. El ETL guarda un CSV local de respaldo si `ETL_OV_NEW_CUSTOMER_PATH` está configurado.
-4. El ETL procesa esos clientes en VKM.
-5. El ETL confirma al backend `confirmed`, `partial` o `error`.
-6. El backend traduce esos resultados a `etl_confirmed`, `etl_partial` o `etl_error`.
-7. El Dashboard OV libera `CSV OV` sólo cuando la confirmación queda OK.
-
 Endpoint automático:
 
 ```text
-POST /api/ordenes-venta/customer-sync/export/
+POST /api/ordenes-venta/etl/customer-sync/export/
+POST /api/ordenes-venta/etl/customer-sync/queued/
+POST /api/ordenes-venta/etl/customer-sync/confirm/
 ```
 
 Payload opcional:
@@ -315,6 +317,7 @@ Payload opcional:
 }
 ```
 
+
 ## Entrada manual de respaldo
 
 El modo manual acepta un CSV separado por `;` con headers mínimos:
@@ -324,7 +327,6 @@ cliente_id;nombre;direccion;localidad;provincia;codigo_postal
 ```
 
 Columnas requeridas:
-
 - `cliente_id`
 - `nombre`
 - `direccion`
@@ -336,8 +338,6 @@ El modo manual es sólo un respaldo operativo. No consulta pendientes al backend
 Puede incluir `vkm_cuenta_id`; si no lo incluye, el ETL usa `VKM_CUENTA_ID` como fallback.
 
 ## Configuración
-
-Crear un `.env` local a partir de `.env.example`.
 
 Variables:
 
@@ -393,7 +393,8 @@ El insert mantiene los valores fijos del legacy:
 - `INEntTDI=80`
 - `INEEst='1'`
 - `INEntUsuReg='vaclog'`
-- `INEntAgc='1'`
+- `INEntAgc=NULL`
+- `INEntIVA='1'`
 
 ## Modos de ejecución
 
@@ -419,6 +420,10 @@ clients_csv_downloaded
   ↓
 VKM
   ↓
+etl_queued si IntEntidad queda en INEEst=1
+  ↓
+confirmación posterior si INEEst=2
+  ↓
 confirm_customer_sync
 ```
 
@@ -428,11 +433,13 @@ Comando con cuenta específica:
 python -m src.main --client-id 123
 ```
 
-Si no se informa `--client-id`, el backend selecciona una cuenta con clientes pendientes:
+Si no se informa `--client-id`, el ETL procesa clientes pendientes de todas las cuentas exportables:
 
 ```powershell
 python -m src.main
 ```
+
+El modo automático usa un lock local `.etl_ov.automatic.lock` para evitar ejecuciones superpuestas del mismo job. Si detecta otra corrida en curso, la nueva ejecución sale sin procesar filas.
 
 Si se quiere limitar la cantidad de clientes tomados en una ejecución:
 
@@ -542,7 +549,7 @@ Hace:
 python -m src.main
 ```
 
-Uso recomendado cuando se quiere que el backend seleccione automáticamente una cuenta con clientes pendientes.
+Uso recomendado cuando se quieren procesar todas las cuentas con clientes pendientes.
 
 Hace lo mismo que el modo automático real con cuenta específica:
 
@@ -623,6 +630,7 @@ Este archivo sirve como respaldo operativo de los clientes que el backend entreg
 
 El CSV usa delimitador `;` y columnas:
 
+- `client_id`
 - `cliente_id`
 - `nombre`
 - `direccion`
@@ -641,16 +649,25 @@ Este archivo no es la fuente principal del proceso automático. La fuente princi
 Endpoint backend:
 
 ```text
-POST /api/ordenes-venta/customer-sync/confirm/
+POST /api/ordenes-venta/etl/customer-sync/confirm/
 ```
 
-Payload:
+Payload por `request_id`:
 
 ```json
 {
   "request_id": "req-123",
-  "status": "confirmed|partial|error",
-  "queue_type": "customers",
+  "status": "confirmed|queued|partial|error",
+  "error_detail": "opcional"
+}
+```
+
+Payload por IDs de cola:
+
+```json
+{
+  "ids": [123, 456],
+  "status": "confirmed|queued|error",
   "error_detail": "opcional"
 }
 ```

@@ -3,17 +3,28 @@ class DepositoApiClient:
         self.config = config
         self.dry_run = dry_run
 
-    def confirm_customer_sync(self, request_id, status, error_detail=""):
+    def confirm_customer_sync(self, request_id="", status="", error_detail="", ids=None):
         payload = {
-            "request_id": request_id,
+            "request_id": request_id or "",
             "status": status,
             "error_detail": error_detail or "",
             "queue_type": "customers",
         }
+        if ids:
+            payload["ids"] = ids
         if self.dry_run:
             return {"dry_run": True, "payload": payload}
 
-        return self._post_json("/api/ordenes-venta/customer-sync/confirm/", payload)
+        return self._post_json("/api/ordenes-venta/etl/customer-sync/confirm/", payload)
+
+    def list_queued_customers(self, client_id=None, limit=500):
+        payload = {"limit": limit}
+        if client_id not in (None, ""):
+            payload["client_id"] = client_id
+        if self.dry_run:
+            return {"dry_run": True, "payload": payload, "rows": []}
+
+        return self._post_json("/api/ordenes-venta/etl/customer-sync/queued/", payload)
 
     def export_pending_customers(self, client_id=None, request_id="", limit=500):
         payload = {
@@ -25,7 +36,7 @@ class DepositoApiClient:
         if self.dry_run:
             return {"dry_run": True, "payload": payload, "rows": [], "request_id": request_id or ""}
 
-        return self._post_json("/api/ordenes-venta/customer-sync/export/", payload)
+        return self._post_json("/api/ordenes-venta/etl/customer-sync/export/", payload)
 
     def _post_json(self, path, payload):
         try:

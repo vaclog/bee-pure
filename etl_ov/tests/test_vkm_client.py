@@ -102,7 +102,7 @@ class VkmClientTests(unittest.TestCase):
 
         result = client.create_or_confirm_customer(_row(vkm_cuenta_id="88"))
 
-        self.assertEqual(result["status"], "exists")
+        self.assertEqual(result["status"], "confirmed")
         self.assertEqual(connection.commit_calls, 0)
 
     def test_create_or_confirm_customer_inserts_intentidad_with_expected_fields(self):
@@ -114,7 +114,7 @@ class VkmClientTests(unittest.TestCase):
 
         result = client.create_or_confirm_customer(_row(vkm_cuenta_id="88"))
 
-        self.assertEqual(result["status"], "created")
+        self.assertEqual(result["status"], "queued")
         self.assertEqual(connection.commit_calls, 1)
         query, params = insert_cursor.execute_calls[0]
         self.assertIn("[VKM_Interfaz_Prod].[dbo].[IntEntidad]", query)
@@ -131,7 +131,12 @@ class VkmClientTests(unittest.TestCase):
         self.assertEqual(params[21], "C001")
         self.assertEqual(params[24], "1")
         self.assertEqual(params[25], "vaclog")
-        self.assertEqual(params[27], "1")
+        self.assertIsNone(params[27])
+        self.assertEqual(params[28], "1")
+        self.assertIsNone(params[29])
+        self.assertIsNone(params[30])
+        self.assertIsNone(params[31])
+        self.assertIsNone(params[32])
         self.assertEqual(params[33], "Obs")
         self.assertEqual(params[34], "88")
 
@@ -147,6 +152,30 @@ class VkmClientTests(unittest.TestCase):
         insert_params = insert_cursor.execute_calls[0][1]
         self.assertEqual(exists_params, ("C001", "99"))
         self.assertEqual(insert_params[34], "99")
+
+    def test_verify_queued_customer_confirms_ineest_2(self):
+        cursor = FakeCursor(fetchone_result=("2",))
+        client = VkmClient(_config(cuenta_id="42"), dry_run=False)
+        client.connection = FakeConnection([cursor])
+
+        result = client.verify_queued_customer(_row(vkm_cuenta_id="88"))
+
+        self.assertEqual(result["status"], "confirmed")
+        query, params = cursor.execute_calls[0]
+        self.assertIn("FROM [VKM_Interfaz_Prod].[dbo].[IntEntidad]", query)
+        self.assertIn("INEntId = ?", query)
+        self.assertIn("INEntLogE = ?", query)
+        self.assertEqual(params, ("C001", "88"))
+
+    def test_verify_queued_customer_leaves_ineest_1_queued(self):
+        cursor = FakeCursor(fetchone_result=("1",))
+        client = VkmClient(_config(cuenta_id="42"), dry_run=False)
+        client.connection = FakeConnection([cursor])
+
+        result = client.verify_queued_customer(_row(vkm_cuenta_id="88"))
+
+        self.assertEqual(result["status"], "queued")
+        self.assertEqual(result["ineest"], "1")
 
     def test_strings_are_cleaned_and_truncated(self):
         self.assertEqual(truncate_vkm_text("A'B\"C/á", 10), "ABC")

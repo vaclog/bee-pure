@@ -130,6 +130,36 @@ class VkmClient:
             return None
         return row[0]
 
+    def intentidad_status(self, cliente_id, row=None):
+        if self.dry_run:
+            return None
+
+        vkm_cuenta_id = self._resolve_vkm_cuenta_id(row)
+        query = f"""
+            SELECT TOP 1 INEEst
+            FROM {INTENTIDAD_TABLE}
+            WHERE INEntId = ?
+              AND INEntLogE = ?
+            ORDER BY INEntFecReg DESC
+        """
+        with self._ensure_connection().cursor() as cursor:
+            cursor.execute(
+                query,
+                truncate_vkm_text(cliente_id, 20),
+                vkm_cuenta_id,
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        return str(row[0]).strip()
+
+    def verify_queued_customer(self, row):
+        cliente_id = truncate_vkm_text(row.get("cliente_id") or row.get("customer_code"), 20)
+        status = self.intentidad_status(cliente_id, row)
+        if status == "2":
+            return {"cliente_id": cliente_id, "status": "confirmed", "ineest": status}
+        return {"cliente_id": cliente_id, "status": "queued", "ineest": status}
+
     def create_or_confirm_customer(self, row):
         if self.dry_run:
             return {"cliente_id": row["cliente_id"], "status": "dry_run"}
@@ -138,7 +168,7 @@ class VkmClient:
         vkm_cuenta_id = self._resolve_vkm_cuenta_id(row)
         existing_id = self.customer_exists(cliente_id, row)
         if existing_id:
-            return {"cliente_id": cliente_id, "status": "exists", "vkm_id": existing_id}
+            return {"cliente_id": cliente_id, "status": "confirmed", "vkm_id": existing_id}
 
         values = self._build_intentidad_values(row, vkm_cuenta_id)
         placeholders = ", ".join("?" for _ in INTENTIDAD_COLUMNS)
@@ -147,7 +177,7 @@ class VkmClient:
         with self._ensure_connection().cursor() as cursor:
             cursor.execute(query, *values)
         self.connection.commit()
-        return {"cliente_id": cliente_id, "status": "created"}
+        return {"cliente_id": cliente_id, "status": "queued"}
 
     def _build_intentidad_values(self, row, vkm_cuenta_id=None):
         cliente_id = truncate_vkm_text(row.get("cliente_id"), 20)

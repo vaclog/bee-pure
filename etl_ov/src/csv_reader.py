@@ -14,6 +14,7 @@ REQUIRED_HEADERS = (
 )
 
 BACKUP_HEADERS = (
+    "client_id",
     "cliente_id",
     "nombre",
     "direccion",
@@ -50,6 +51,19 @@ def _clean(value):
     return str(value).strip()
 
 
+def _duplicate_customer_key(row):
+    cliente_id = row.get("cliente_id", "")
+    client_id = row.get("client_id", "")
+    if client_id:
+        return ("client_id", client_id, cliente_id)
+
+    vkm_cuenta_id = row.get("vkm_cuenta_id", "")
+    if vkm_cuenta_id:
+        return ("vkm_cuenta_id", vkm_cuenta_id, cliente_id)
+
+    return ("cliente_id", cliente_id)
+
+
 def validate_customer_rows(raw_rows, headers=None):
     headers = list(headers or REQUIRED_HEADERS)
     missing_headers = [header for header in REQUIRED_HEADERS if header not in headers]
@@ -62,17 +76,19 @@ def validate_customer_rows(raw_rows, headers=None):
 
     rows = []
     errors = []
-    seen_cliente_ids = set()
+    seen_customer_keys = set()
 
     for row_number, raw_row in enumerate(raw_rows, start=2):
         row = {header: _clean(raw_row.get(header)) for header in headers}
         cliente_id = row.get("cliente_id", "")
         if not cliente_id:
             errors.append(RowError(row_number, "cliente_id vacio."))
-        elif cliente_id in seen_cliente_ids:
-            errors.append(RowError(row_number, f"cliente_id duplicado: {cliente_id}."))
         else:
-            seen_cliente_ids.add(cliente_id)
+            duplicate_key = _duplicate_customer_key(row)
+            if duplicate_key in seen_customer_keys:
+                errors.append(RowError(row_number, f"cliente_id duplicado: {cliente_id}."))
+            else:
+                seen_customer_keys.add(duplicate_key)
 
         for header in REQUIRED_HEADERS:
             if not row.get(header):
