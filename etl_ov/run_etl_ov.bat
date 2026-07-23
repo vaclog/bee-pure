@@ -5,9 +5,9 @@ setlocal
 set "ETL_DIR=%~dp0"
 set "PYTHON=%ETL_DIR%.venv\Scripts\python.exe"
 
-:: Log diario en %TEMP%\etl_ov_YYYYMMDD.log  (wmic para evitar dependencia del locale)
-for /f "skip=1 tokens=1" %%d in ('wmic os get LocalDateTime') do if not defined FECHA set "FECHA=%%d"
-set "LOGFILE=%TEMP%\etl_ov_%FECHA:~0,8%.log"
+:: Log diario en %TEMP%\etl_ov_YYYYMMDD.log
+for /f %%d in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd"') do set "FECHA=%%d"
+set "LOGFILE=%TEMP%\etl_ov_%FECHA%.log"
 
 :: Verificar que el venv existe
 if not exist "%PYTHON%" (
