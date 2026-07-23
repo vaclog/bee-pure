@@ -6,7 +6,10 @@
       "Bash(cmd.exe /c run_etl_ov.bat)",
       "Bash(cmd.exe /c \"run_etl_ov.bat\")",
       "Bash(\"c:/prg/VACLOG/bee-pure/etl_ov/.venv/Scripts/python.exe\" --version)",
-      "Bash(\".venv/Scripts/python.exe\" -m src.main)"
+      "Bash(\".venv/Scripts/python.exe\" -m src.main)",
+      "Bash(git checkout *)",
+      "Bash(git merge *)",
+      "Bash(git stash *)"
     ]
   }
 }
