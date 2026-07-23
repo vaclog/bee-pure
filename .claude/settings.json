@@ -9,7 +9,9 @@
       "Bash(\".venv/Scripts/python.exe\" -m src.main)",
       "Bash(git checkout *)",
       "Bash(git merge *)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Read(//c/Users/asagula/AppData/Local/Temp/**)",
+      "Bash(cmd.exe /c \"echo %TEMP% && echo %date%\")"
     ]
   }
 }
