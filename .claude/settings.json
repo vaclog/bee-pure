@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd /c \"c:/prg/VACLOG/bee-pure/etl_ov/run_etl_ov.bat\")",
+      "Bash(cmd.exe /c \"\\\\\"c:/prg/VACLOG/bee-pure/etl_ov/run_etl_ov.bat\\\\\"\")",
+      "Bash(cmd.exe /c run_etl_ov.bat)",
+      "Bash(cmd.exe /c \"run_etl_ov.bat\")",
+      "Bash(\"c:/prg/VACLOG/bee-pure/etl_ov/.venv/Scripts/python.exe\" --version)",
+      "Bash(\".venv/Scripts/python.exe\" -m src.main)",
+      "Bash(git checkout *)",
+      "Bash(git merge *)",
+      "Bash(git stash *)",
+      "Read(//c/Users/asagula/AppData/Local/Temp/**)",
+      "Bash(cmd.exe /c \"echo %TEMP% && echo %date%\")"
+    ]
+  }
+}
