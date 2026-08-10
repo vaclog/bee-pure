@@ -9,6 +9,7 @@ from .config import load_settings
 from .csv_reader import read_customers_csv, validate_customer_rows, write_customers_backup_csv
 from .deposito_api_client import DepositoApiClient
 from .logging_config import configure_logging
+from .version import get_version
 from .vkm_client import VkmClient
 
 
@@ -62,6 +63,33 @@ def process_rows(rows, vkm_client):
     return ProcessingResult(ok_count=ok_count, error_count=len(errors), errors=errors, row_results=row_results)
 
 
+def _confirmed_customer_mappings(row_results):
+    mappings = []
+    for item in row_results or []:
+        if item.get("status") != "confirmed":
+            continue
+        row = item.get("row") or {}
+        queue_id = row.get("id")
+        if not queue_id:
+            continue
+
+        customer_code = (item.get("customer_code") or item.get("cliente_id") or row.get("customer_code") or row.get("cliente_id") or "").strip()
+        codigo_valkimia = str(item.get("codigo_valkimia") or "").strip()
+        if not customer_code or not codigo_valkimia:
+            raise RuntimeError(
+                f"Cliente confirmado sin mapping completo id={queue_id} customer_code={customer_code or ''}"
+            )
+
+        mappings.append(
+            {
+                "id": queue_id,
+                "customer_code": customer_code,
+                "codigo_valkimia": codigo_valkimia,
+            }
+        )
+    return mappings
+
+
 def confirm_processed_rows(deposito_client, request_id, result, error_detail):
     rows_have_ids = any((item.get("row") or {}).get("id") for item in (result.row_results or []))
     if not rows_have_ids:
@@ -77,7 +105,10 @@ def confirm_processed_rows(deposito_client, request_id, result, error_detail):
             if item.get("status") == status and (item.get("row") or {}).get("id")
         ]
         if ids:
-            deposito_client.confirm_customer_sync(status=status, ids=ids)
+            confirm_kwargs = {"status": status, "ids": ids}
+            if status == "confirmed":
+                confirm_kwargs["customer_mappings"] = _confirmed_customer_mappings(result.row_results)
+            deposito_client.confirm_customer_sync(**confirm_kwargs)
             if status == "queued":
                 sent_status = "queued"
 
@@ -95,14 +126,23 @@ def confirm_processed_rows(deposito_client, request_id, result, error_detail):
 def verify_queued_customers(deposito_client, vkm_client, client_id, limit, logger):
     queued_result = deposito_client.list_queued_customers(client_id=client_id, limit=limit)
     queued_rows = queued_result.get("rows") or []
-    confirmed_ids = []
+    verified_rows = []
     for row in queued_rows:
         result = vkm_client.verify_queued_customer(row)
-        if result.get("status") == "confirmed" and row.get("id"):
-            confirmed_ids.append(row["id"])
+        verified_rows.append({"row": row, **(result or {})})
+
+    confirmed_ids = [
+        (item.get("row") or {}).get("id")
+        for item in verified_rows
+        if item.get("status") == "confirmed" and (item.get("row") or {}).get("id")
+    ]
 
     if confirmed_ids:
-        deposito_client.confirm_customer_sync(status="confirmed", ids=confirmed_ids)
+        deposito_client.confirm_customer_sync(
+            status="confirmed",
+            ids=confirmed_ids,
+            customer_mappings=_confirmed_customer_mappings(verified_rows),
+        )
     logger.info("Clientes en cola verificados=%s confirmados=%s", len(queued_rows), len(confirmed_ids))
     return {"checked": len(queued_rows), "confirmed": len(confirmed_ids)}
 
@@ -114,6 +154,37 @@ def build_error_detail(errors, limit=20):
 def _log_csv_errors(logger, csv_result):
     for error in csv_result.errors:
         logger.error("CSV fila=%s error=%s", error.row_number, error.message)
+
+
+def _validation_error_messages(csv_result):
+    return [
+        f"Fila {error.row_number}: {error.message}"
+        for error in csv_result.errors
+    ]
+
+
+def _exported_row_ids(rows):
+    return [
+        row.get("id")
+        for row in rows
+        if row.get("id")
+    ]
+
+
+def confirm_customer_validation_failure(deposito_client, rows, request_id, csv_result):
+    error_detail = build_error_detail(_validation_error_messages(csv_result))
+    ids = _exported_row_ids(rows)
+    if ids and len(ids) == len(rows):
+        deposito_client.confirm_customer_sync(status="error", ids=ids, error_detail=error_detail)
+    elif request_id:
+        deposito_client.confirm_customer_sync(
+            request_id=request_id,
+            status="error",
+            error_detail=error_detail,
+        )
+    elif ids:
+        deposito_client.confirm_customer_sync(status="error", ids=ids, error_detail=error_detail)
+    return error_detail
 
 
 def _write_backup_csv_if_enabled(settings, rows, request_id, logger):
@@ -253,6 +324,7 @@ def export_and_process_pending_customers(deposito_client, args, settings, logger
     csv_result = validate_customer_rows(rows, headers=rows[0].keys())
     if not csv_result.is_valid:
         _log_csv_errors(logger, csv_result)
+        confirm_customer_validation_failure(deposito_client, rows, request_id, csv_result)
         return EXIT_FUNCTIONAL_ERROR, len(rows)
 
     return process_and_confirm(csv_result.rows, request_id, settings, logger), len(rows)
@@ -292,6 +364,7 @@ def parse_args(argv=None):
     parser.add_argument("--limit", default=500, help="Cantidad maxima de clientes a tomar del backend.")
     parser.add_argument("--dry-run", action="store_true", help="Valida y simula sin tocar VKM ni backend.")
     parser.add_argument("--env-path", default=None, help="Path opcional a archivo .env.")
+    parser.add_argument("--version", action="version", version=f"ETL OV {get_version()}")
     return parser.parse_args(argv)
 
 
@@ -301,10 +374,27 @@ def main(argv=None):
     dry_run = args.dry_run or settings.dry_run
     configure_logging(settings.log_level)
     logger = logging.getLogger("etl_ov")
+    version = get_version()
+    mode = "manual" if args.csv_path else "automatic"
+
+    logger.info(
+        "Inicio proceso ETL OV version=%s mode=%s dry_run=%s",
+        version,
+        mode,
+        dry_run,
+    )
 
     if args.csv_path:
-        return run_manual_mode(args, settings, dry_run, logger)
-    return run_automatic_mode(args, settings, dry_run, logger)
+        exit_code = run_manual_mode(args, settings, dry_run, logger)
+    else:
+        exit_code = run_automatic_mode(args, settings, dry_run, logger)
+
+    logger.info(
+        "Fin proceso ETL OV version=%s exit_code=%s",
+        version,
+        exit_code,
+    )
+    return exit_code
 
 
 if __name__ == "__main__":

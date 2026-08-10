@@ -1,4 +1,5 @@
 from datetime import datetime
+import logging
 import re
 
 
@@ -40,6 +41,9 @@ INTENTIDAD_COLUMNS = (
     "INEntObs",
     "INEntLogE",
 )
+
+
+logger = logging.getLogger("etl_ov")
 
 
 def clean_vkm_text(value):
@@ -157,8 +161,23 @@ class VkmClient:
         cliente_id = truncate_vkm_text(row.get("cliente_id") or row.get("customer_code"), 20)
         status = self.intentidad_status(cliente_id, row)
         if status == "2":
-            return {"cliente_id": cliente_id, "status": "confirmed", "ineest": status}
-        return {"cliente_id": cliente_id, "status": "queued", "ineest": status}
+            existing_id = self.customer_exists(cliente_id, row)
+            codigo_valkimia = self._normalize_codigo_valkimia(existing_id)
+            if codigo_valkimia:
+                return {
+                    "cliente_id": cliente_id,
+                    "customer_code": cliente_id,
+                    "status": "confirmed",
+                    "ineest": status,
+                    "vkm_id": existing_id,
+                    "codigo_valkimia": codigo_valkimia,
+                }
+            logger.warning(
+                "INEEst=2 sin ENT.EntID resoluble cliente_id=%s vkm_cuenta_id=%s",
+                cliente_id,
+                self._resolve_vkm_cuenta_id(row),
+            )
+        return {"cliente_id": cliente_id, "customer_code": cliente_id, "status": "queued", "ineest": status}
 
     def create_or_confirm_customer(self, row):
         if self.dry_run:
@@ -168,7 +187,13 @@ class VkmClient:
         vkm_cuenta_id = self._resolve_vkm_cuenta_id(row)
         existing_id = self.customer_exists(cliente_id, row)
         if existing_id:
-            return {"cliente_id": cliente_id, "status": "confirmed", "vkm_id": existing_id}
+            return {
+                "cliente_id": cliente_id,
+                "customer_code": cliente_id,
+                "status": "confirmed",
+                "vkm_id": existing_id,
+                "codigo_valkimia": self._normalize_codigo_valkimia(existing_id),
+            }
 
         values = self._build_intentidad_values(row, vkm_cuenta_id)
         placeholders = ", ".join("?" for _ in INTENTIDAD_COLUMNS)
@@ -178,6 +203,11 @@ class VkmClient:
             cursor.execute(query, *values)
         self.connection.commit()
         return {"cliente_id": cliente_id, "status": "queued"}
+
+    def _normalize_codigo_valkimia(self, value):
+        if value is None:
+            return ""
+        return str(value).strip()
 
     def _build_intentidad_values(self, row, vkm_cuenta_id=None):
         cliente_id = truncate_vkm_text(row.get("cliente_id"), 20)

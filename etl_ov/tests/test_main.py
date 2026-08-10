@@ -1,4 +1,5 @@
 from pathlib import Path
+from io import StringIO
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -8,6 +9,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src import main as main_module
+from src.deposito_api_client import DepositoApiClient
 from src.main import ProcessingResult, determine_dashboard_status, exit_code_for_status
 
 
@@ -63,6 +65,67 @@ class MainFlowTests(unittest.TestCase):
     def _patch_settings(self):
         return patch("src.main.load_settings", return_value=_settings())
 
+    def test_version_flag_prints_current_version_and_exits_successfully(self):
+        stdout = StringIO()
+        stderr = StringIO()
+
+        with patch("sys.stdout", stdout), patch("sys.stderr", stderr), patch("src.main.get_version", return_value="9.8.7"), patch("src.main.load_settings") as load_settings_mock, patch("src.main.DepositoApiClient") as deposito_mock, patch("src.main.VkmClient") as vkm_mock:
+            with self.assertRaises(SystemExit) as exc:
+                main_module.main(["--version"])
+
+        self.assertEqual(exc.exception.code, 0)
+        self.assertEqual(stdout.getvalue().strip(), "ETL OV 9.8.7")
+        self.assertEqual(stderr.getvalue(), "")
+        load_settings_mock.assert_not_called()
+        deposito_mock.assert_not_called()
+        vkm_mock.assert_not_called()
+
+    def test_manual_startup_and_completion_logs_include_version_and_exit_code(self):
+        logger = unittest.mock.Mock()
+
+        with self._patch_settings(), patch("src.main.configure_logging"), patch("src.main.logging.getLogger", return_value=logger), patch("src.main.get_version", return_value="1.0.0"), patch("src.main.run_manual_mode", return_value=main_module.EXIT_FUNCTIONAL_ERROR) as run_manual_mode_mock:
+            exit_code = main_module.main(["--csv-path", "manual.csv", "--request-id", "req-1", "--dry-run"])
+
+        self.assertEqual(exit_code, main_module.EXIT_FUNCTIONAL_ERROR)
+        run_manual_mode_mock.assert_called_once()
+        logger.info.assert_any_call(
+            "Inicio proceso ETL OV version=%s mode=%s dry_run=%s",
+            "1.0.0",
+            "manual",
+            True,
+        )
+        logger.info.assert_any_call(
+            "Fin proceso ETL OV version=%s exit_code=%s",
+            "1.0.0",
+            main_module.EXIT_FUNCTIONAL_ERROR,
+        )
+
+    def test_automatic_startup_and_completion_logs_include_version_and_exit_code(self):
+        logger = unittest.mock.Mock()
+
+        with self._patch_settings(), patch("src.main.configure_logging"), patch("src.main.logging.getLogger", return_value=logger), patch("src.main.get_version", return_value="1.0.0"), patch("src.main.run_automatic_mode", return_value=main_module.EXIT_TECHNICAL_ERROR) as run_automatic_mode_mock:
+            exit_code = main_module.main(["--dry-run"])
+
+        self.assertEqual(exit_code, main_module.EXIT_TECHNICAL_ERROR)
+        run_automatic_mode_mock.assert_called_once()
+        logger.info.assert_any_call(
+            "Inicio proceso ETL OV version=%s mode=%s dry_run=%s",
+            "1.0.0",
+            "automatic",
+            True,
+        )
+        logger.info.assert_any_call(
+            "Fin proceso ETL OV version=%s exit_code=%s",
+            "1.0.0",
+            main_module.EXIT_TECHNICAL_ERROR,
+        )
+
+    def test_missing_version_file_does_not_block_normal_execution(self):
+        with self._patch_settings(), patch("src.main.get_version", return_value="unknown"), patch("src.main.run_automatic_mode", return_value=main_module.EXIT_SUCCESS):
+            exit_code = main_module.main(["--dry-run"])
+
+        self.assertEqual(exit_code, main_module.EXIT_SUCCESS)
+
     def test_automatic_mode_marks_downloaded_before_confirming(self):
         calls = []
 
@@ -112,6 +175,161 @@ class MainFlowTests(unittest.TestCase):
         self.assertIn("queued", calls)
         self.assertIn("export", calls)
         self.assertIn(("confirm", "", "queued", "", ["10"]), calls)
+
+    def test_export_validation_failure_confirms_error_by_ids(self):
+        calls = []
+
+        class FakeDepositoClient:
+            def export_pending_customers(self, **_kwargs):
+                return {
+                    "request_id": "req-invalid",
+                    "updated": 1,
+                    "rows": [{**_valid_row(), "id": 10, "codigo_postal": ""}],
+                }
+
+            def confirm_customer_sync(self, request_id="", status="", error_detail="", ids=None):
+                calls.append((request_id, status, error_detail, ids))
+                return {"updated": 1}
+
+        exit_code, processed_rows = main_module.export_and_process_pending_customers(
+            FakeDepositoClient(),
+            SimpleNamespace(client_id=None, request_id="", limit=500),
+            _settings(),
+            main_module.logging.getLogger("etl_ov.tests"),
+        )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(processed_rows, 1)
+        self.assertEqual(calls[0][0], "")
+        self.assertEqual(calls[0][1], "error")
+        self.assertIn("codigo_postal vacio", calls[0][2])
+        self.assertEqual(calls[0][3], [10])
+
+    def test_export_validation_failure_confirms_all_exported_ids_and_skips_vkm(self):
+        calls = []
+
+        class FakeDepositoClient:
+            def export_pending_customers(self, **_kwargs):
+                return {
+                    "request_id": "req-invalid",
+                    "updated": 2,
+                    "rows": [
+                        {**_valid_row("C001"), "id": 10},
+                        {**_valid_row("C002"), "id": 11, "codigo_postal": ""},
+                    ],
+                }
+
+            def confirm_customer_sync(self, request_id="", status="", error_detail="", ids=None):
+                calls.append((request_id, status, error_detail, ids))
+                return {"updated": 2}
+
+        with patch("src.main.process_and_confirm") as process_and_confirm_mock:
+            exit_code, processed_rows = main_module.export_and_process_pending_customers(
+                FakeDepositoClient(),
+                SimpleNamespace(client_id=None, request_id="", limit=500),
+                _settings(),
+                main_module.logging.getLogger("etl_ov.tests"),
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(processed_rows, 2)
+        self.assertEqual(calls[0][0], "")
+        self.assertEqual(calls[0][1], "error")
+        self.assertIn("codigo_postal vacio", calls[0][2])
+        self.assertEqual(calls[0][3], [10, 11])
+        process_and_confirm_mock.assert_not_called()
+
+    def test_export_validation_failure_falls_back_to_request_id_without_ids(self):
+        calls = []
+
+        class FakeDepositoClient:
+            def export_pending_customers(self, **_kwargs):
+                return {
+                    "request_id": "req-invalid",
+                    "updated": 1,
+                    "rows": [{**_valid_row(), "codigo_postal": ""}],
+                }
+
+            def confirm_customer_sync(self, request_id="", status="", error_detail="", ids=None):
+                calls.append((request_id, status, error_detail, ids))
+                return {"updated": 1}
+
+        exit_code, processed_rows = main_module.export_and_process_pending_customers(
+            FakeDepositoClient(),
+            SimpleNamespace(client_id=None, request_id="", limit=500),
+            _settings(),
+            main_module.logging.getLogger("etl_ov.tests"),
+        )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(processed_rows, 1)
+        self.assertEqual(calls[0][0], "req-invalid")
+        self.assertEqual(calls[0][1], "error")
+        self.assertIn("codigo_postal vacio", calls[0][2])
+        self.assertIsNone(calls[0][3])
+
+    def test_export_validation_failure_falls_back_to_request_id_when_some_ids_are_missing(self):
+        calls = []
+
+        class FakeDepositoClient:
+            def export_pending_customers(self, **_kwargs):
+                return {
+                    "request_id": "req-invalid",
+                    "updated": 2,
+                    "rows": [
+                        {**_valid_row("C001"), "id": 10},
+                        {**_valid_row("C002"), "codigo_postal": ""},
+                    ],
+                }
+
+            def confirm_customer_sync(self, request_id="", status="", error_detail="", ids=None):
+                calls.append((request_id, status, error_detail, ids))
+                return {"updated": 2}
+
+        exit_code, processed_rows = main_module.export_and_process_pending_customers(
+            FakeDepositoClient(),
+            SimpleNamespace(client_id=None, request_id="", limit=500),
+            _settings(),
+            main_module.logging.getLogger("etl_ov.tests"),
+        )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(processed_rows, 2)
+        self.assertEqual(calls[0][0], "req-invalid")
+        self.assertEqual(calls[0][1], "error")
+        self.assertIn("codigo_postal vacio", calls[0][2])
+        self.assertIsNone(calls[0][3])
+
+    def test_export_validation_failure_without_request_id_uses_available_ids(self):
+        calls = []
+
+        class FakeDepositoClient:
+            def export_pending_customers(self, **_kwargs):
+                return {
+                    "request_id": "",
+                    "updated": 2,
+                    "rows": [
+                        {**_valid_row("C001"), "id": 10},
+                        {**_valid_row("C002"), "codigo_postal": ""},
+                    ],
+                }
+
+            def confirm_customer_sync(self, request_id="", status="", error_detail="", ids=None):
+                calls.append((request_id, status, error_detail, ids))
+                return {"updated": 1}
+
+        exit_code, processed_rows = main_module.export_and_process_pending_customers(
+            FakeDepositoClient(),
+            SimpleNamespace(client_id=None, request_id="", limit=500),
+            _settings(),
+            main_module.logging.getLogger("etl_ov.tests"),
+        )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(processed_rows, 2)
+        self.assertEqual(calls[0][0], "")
+        self.assertEqual(calls[0][1], "error")
+        self.assertEqual(calls[0][3], [10])
 
     def test_automatic_mode_generates_backup_csv_when_path_is_configured(self):
         settings = _settings()
@@ -268,8 +486,8 @@ class MainFlowTests(unittest.TestCase):
             def list_queued_customers(self, **_kwargs):
                 return {"rows": [{**_valid_row("C009"), "id": 99}]}
 
-            def confirm_customer_sync(self, request_id="", status="", error_detail="", ids=None):
-                calls.append(("confirm", status, ids))
+            def confirm_customer_sync(self, request_id="", status="", error_detail="", ids=None, customer_mappings=None):
+                calls.append(("confirm", status, ids, customer_mappings))
                 return {"updated": 1}
 
             def export_pending_customers(self, **_kwargs):
@@ -285,7 +503,14 @@ class MainFlowTests(unittest.TestCase):
 
             def verify_queued_customer(self, row):
                 calls.append(("verify", row["cliente_id"]))
-                return {"cliente_id": row["cliente_id"], "status": "confirmed", "ineest": "2"}
+                return {
+                    "cliente_id": row["cliente_id"],
+                    "customer_code": row["cliente_id"],
+                    "status": "confirmed",
+                    "ineest": "2",
+                    "codigo_valkimia": "501",
+                    "vkm_id": 501,
+                }
 
             def close(self):
                 pass
@@ -294,7 +519,15 @@ class MainFlowTests(unittest.TestCase):
             exit_code = main_module.main([])
 
         self.assertEqual(exit_code, 0)
-        self.assertIn(("confirm", "confirmed", [99]), calls)
+        self.assertIn(
+            (
+                "confirm",
+                "confirmed",
+                [99],
+                [{"id": 99, "customer_code": "C009", "codigo_valkimia": "501"}],
+            ),
+            calls,
+        )
         self.assertIn("export", calls)
 
     def test_queued_customer_with_ineest_1_remains_queued(self):
@@ -334,6 +567,111 @@ class MainFlowTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn(("verify", "C009"), calls)
         self.assertNotIn("confirm", calls)
+
+    def test_queued_customer_with_ineest_2_and_missing_entid_is_not_confirmed(self):
+        calls = []
+
+        class FakeDepositoApiClient:
+            def __init__(self, _config, dry_run=False):
+                pass
+
+            def list_queued_customers(self, **_kwargs):
+                return {"rows": [{**_valid_row("C009"), "id": 99}]}
+
+            def confirm_customer_sync(self, **_kwargs):
+                calls.append("confirm")
+                return {"updated": 1}
+
+            def export_pending_customers(self, **_kwargs):
+                return {"request_id": "req-auto", "updated": 0, "rows": []}
+
+        class FakeVkmClient:
+            def __init__(self, _config, dry_run=False):
+                pass
+
+            def connect(self):
+                pass
+
+            def verify_queued_customer(self, row):
+                calls.append(("verify", row["cliente_id"]))
+                return {
+                    "cliente_id": row["cliente_id"],
+                    "customer_code": row["cliente_id"],
+                    "status": "queued",
+                    "ineest": "2",
+                }
+
+            def close(self):
+                pass
+
+        with self._patch_settings(), patch("src.main.DepositoApiClient", FakeDepositoApiClient), patch("src.main.VkmClient", FakeVkmClient):
+            exit_code = main_module.main([])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn(("verify", "C009"), calls)
+        self.assertNotIn("confirm", calls)
+
+    def test_queued_customer_confirmation_keeps_row_specific_accounts_in_mappings(self):
+        calls = []
+
+        class FakeDepositoApiClient:
+            def __init__(self, _config, dry_run=False):
+                pass
+
+            def list_queued_customers(self, **_kwargs):
+                return {
+                    "rows": [
+                        {**_valid_row("C009"), "id": 99, "vkm_cuenta_id": "88"},
+                        {**_valid_row("C010"), "id": 100, "vkm_cuenta_id": "99"},
+                    ]
+                }
+
+            def confirm_customer_sync(self, request_id="", status="", error_detail="", ids=None, customer_mappings=None):
+                calls.append(("confirm", status, ids, customer_mappings))
+                return {"updated": 2}
+
+            def export_pending_customers(self, **_kwargs):
+                return {"request_id": "req-auto", "updated": 0, "rows": []}
+
+        class FakeVkmClient:
+            def __init__(self, _config, dry_run=False):
+                pass
+
+            def connect(self):
+                pass
+
+            def verify_queued_customer(self, row):
+                calls.append(("verify", row["cliente_id"], row["vkm_cuenta_id"]))
+                return {
+                    "cliente_id": row["cliente_id"],
+                    "customer_code": row["cliente_id"],
+                    "status": "confirmed",
+                    "ineest": "2",
+                    "codigo_valkimia": f"VKM-{row['vkm_cuenta_id']}",
+                    "vkm_id": f"VKM-{row['vkm_cuenta_id']}",
+                }
+
+            def close(self):
+                pass
+
+        with self._patch_settings(), patch("src.main.DepositoApiClient", FakeDepositoApiClient), patch("src.main.VkmClient", FakeVkmClient):
+            exit_code = main_module.main([])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn(("verify", "C009", "88"), calls)
+        self.assertIn(("verify", "C010", "99"), calls)
+        self.assertIn(
+            (
+                "confirm",
+                "confirmed",
+                [99, 100],
+                [
+                    {"id": 99, "customer_code": "C009", "codigo_valkimia": "VKM-88"},
+                    {"id": 100, "customer_code": "C010", "codigo_valkimia": "VKM-99"},
+                ],
+            ),
+            calls,
+        )
 
     def test_manual_mode_does_not_export_from_dashboard(self):
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", newline="", suffix=".csv", delete=False) as handle:
@@ -461,6 +799,126 @@ class MainFlowTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertEqual(FakeDepositoApiClient.sent[0][1], "error")
         self.assertIn("caido", FakeDepositoApiClient.sent[0][2])
+
+
+class CustomerSyncConfirmationTests(unittest.TestCase):
+    def test_confirm_processed_rows_sends_customer_mappings_only_for_confirmed_rows(self):
+        calls = []
+
+        class FakeDepositoClient:
+            def confirm_customer_sync(self, request_id="", status="", error_detail="", ids=None, customer_mappings=None):
+                calls.append((request_id, status, error_detail, ids, customer_mappings))
+                return {"updated": len(ids or [])}
+
+        result = ProcessingResult(
+            ok_count=2,
+            error_count=1,
+            errors=["fila 4"],
+            row_results=[
+                {
+                    "row": {**_valid_row("C001"), "id": 10},
+                    "cliente_id": "C001",
+                    "customer_code": "C001",
+                    "status": "confirmed",
+                    "codigo_valkimia": "501",
+                    "vkm_id": 501,
+                },
+                {
+                    "row": {**_valid_row("C002"), "id": 11},
+                    "cliente_id": "C002",
+                    "status": "queued",
+                },
+                {
+                    "row": {**_valid_row("C003"), "id": 12},
+                    "cliente_id": "C003",
+                    "status": "error",
+                    "error": "rechazado",
+                },
+            ],
+        )
+
+        status = main_module.confirm_processed_rows(FakeDepositoClient(), "req-123", result, "fila 4")
+
+        self.assertEqual(status, "partial")
+        self.assertEqual(
+            calls,
+            [
+                (
+                    "",
+                    "confirmed",
+                    "",
+                    [10],
+                    [{"id": 10, "customer_code": "C001", "codigo_valkimia": "501"}],
+                ),
+                ("", "queued", "", [11], None),
+                ("", "error", "fila 4", [12], None),
+            ],
+        )
+
+    def test_confirm_processed_rows_preserves_manual_request_confirmation_without_mappings(self):
+        calls = []
+
+        class FakeDepositoClient:
+            def confirm_customer_sync(self, request_id="", status="", error_detail="", ids=None, customer_mappings=None):
+                calls.append((request_id, status, error_detail, ids, customer_mappings))
+                return {"updated": 1}
+
+        result = ProcessingResult(
+            ok_count=1,
+            error_count=0,
+            errors=[],
+            row_results=[
+                {
+                    "row": _valid_row("C001"),
+                    "cliente_id": "C001",
+                    "customer_code": "C001",
+                    "status": "confirmed",
+                    "codigo_valkimia": "501",
+                }
+            ],
+        )
+
+        status = main_module.confirm_processed_rows(FakeDepositoClient(), "req-manual", result, "")
+
+        self.assertEqual(status, "confirmed")
+        self.assertEqual(calls, [("req-manual", "confirmed", "", None, None)])
+
+
+class DepositoApiClientTests(unittest.TestCase):
+    def _patch_settings(self):
+        return patch("src.main.load_settings", return_value=_settings())
+
+    def test_confirm_customer_sync_includes_customer_mappings_only_when_present(self):
+        client = DepositoApiClient(_settings().deposito_api, dry_run=True)
+
+        with_mappings = client.confirm_customer_sync(
+            status="confirmed",
+            ids=[10],
+            customer_mappings=[{"id": 10, "customer_code": "C001", "codigo_valkimia": "501"}],
+        )
+        without_mappings = client.confirm_customer_sync(status="queued", ids=[11])
+
+        self.assertEqual(
+            with_mappings["payload"],
+            {
+                "request_id": "",
+                "status": "confirmed",
+                "error_detail": "",
+                "queue_type": "customers",
+                "ids": [10],
+                "customer_mappings": [{"id": 10, "customer_code": "C001", "codigo_valkimia": "501"}],
+            },
+        )
+        self.assertEqual(
+            without_mappings["payload"],
+            {
+                "request_id": "",
+                "status": "queued",
+                "error_detail": "",
+                "queue_type": "customers",
+                "ids": [11],
+            },
+        )
 
     def test_dry_run_does_not_touch_backend_or_vkm(self):
         settings = _settings()

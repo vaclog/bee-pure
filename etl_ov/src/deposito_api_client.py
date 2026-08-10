@@ -3,7 +3,7 @@ class DepositoApiClient:
         self.config = config
         self.dry_run = dry_run
 
-    def confirm_customer_sync(self, request_id="", status="", error_detail="", ids=None):
+    def confirm_customer_sync(self, request_id="", status="", error_detail="", ids=None, customer_mappings=None):
         payload = {
             "request_id": request_id or "",
             "status": status,
@@ -12,6 +12,8 @@ class DepositoApiClient:
         }
         if ids:
             payload["ids"] = ids
+        if customer_mappings:
+            payload["customer_mappings"] = customer_mappings
         if self.dry_run:
             return {"dry_run": True, "payload": payload}
 

@@ -43,6 +43,8 @@ Estos pasos dejan `etl_ov` listo para ejecutarse como job aislado.
 
 Copiar la carpeta completa `etl_ov/` al servidor donde se va a ejecutar el proceso.
 
+La version desplegada vive en `etl_ov/VERSION` y viaja automaticamente al copiar la carpeta completa. Para publicar una nueva version alcanza con editar ese archivo antes de copiar `etl_ov/`.
+
 Ubicación recomendada:
 
 ```text
@@ -174,11 +176,15 @@ Importante:
 Ejecutar:
 
 ```powershell
+type VERSION
+python -m src.main --version
 python -m src.main --dry-run
 ```
 
 Resultado esperado:
 
+- `VERSION` contiene la version desplegada, por ejemplo `1.0.0`;
+- `python -m src.main --version` imprime `ETL OV 1.0.0`;
 - el script arranca correctamente;
 - carga configuración;
 - no consulta backend;
@@ -221,6 +227,15 @@ Este comando:
 3. genera CSV local si `ETL_OV_NEW_CUSTOMER_PATH` está configurado;
 4. procesa alta/confirmación en VKM;
 5. confirma resultado al backend.
+
+Orden de despliegue recomendado:
+
+1. desplegar primero el backend que acepta `customer_mappings`;
+2. aplicar todas las migraciones pendientes de ese backend antes de validar la release;
+3. verificar el backend antes de cambiar el ETL, incluyendo al menos `python manage.py check` y la comprobación del flujo `POST /api/ordenes-venta/etl/customer-sync/confirm/` con y sin `customer_mappings`;
+4. desplegar después `etl_ov` versión `1.1.0`.
+
+No automatizar rollbacks de migraciones para este orden de despliegue. La compatibilidad con payloads antiguos sin `customer_mappings` debe mantenerse hasta completar la verificación del backend.
 
 ### 10. Configurar ejecución programada
 
@@ -292,10 +307,16 @@ Dashboard OV libera CSV OV si corresponde
 Notas:
 
 - `pending_export` es el estado inicial/default.
+- Si el backend detecta un cliente incompleto antes de exportarlo al ETL, no lo marca como `clients_csv_downloaded`: lo deja en `etl_error` con detalle para correcciÃ³n y reintento operativo.
+- Si la validaciÃ³n defensiva del ETL falla luego de una exportaciÃ³n, el ETL informa `error` al backend por IDs de cola cuando estÃ¡n disponibles, o por `request_id` como respaldo.
 - `etl_queued` puede permanecer pendiente si VKM nunca cambia `INEEst` de `1` a `2`.
 - El Dashboard OV muestra `REVISAR` cuando un cliente queda en `etl_queued` por más de 5 minutos.
 
 El Dashboard OV sólo libera el `CSV OV` cuando los clientes necesarios para ese batch están confirmados correctamente.
+
+Desde este flujo, `etl_confirmed` significa algo más específico: VKM ya dejó listo el cliente, el ETL resolvió `ENT.EntID`, el backend persistió `customers.codigo_valkimia` y recién después confirmó la fila de `CustomerSyncQueue`.
+
+Si `INEEst=2` pero `ENT.EntID` todavía no puede resolverse, el ETL no confirma la fila y la deja en un estado seguro no confirmado para reintentar en una corrida posterior.
 
 ## Flujo automático
 
@@ -334,6 +355,8 @@ Columnas requeridas:
 - `provincia`
 - `codigo_postal`
 
+Estas columnas corresponden al contrato de clientes del BackOffice: `codigo`, `nombre`, `direccion`, `localidad`, `provincia` y `cp`.
+
 El modo manual es sólo un respaldo operativo. No consulta pendientes al backend y no marca `clients_csv_downloaded`.
 Puede incluir `vkm_cuenta_id`; si no lo incluye, el ETL usa `VKM_CUENTA_ID` como fallback.
 
@@ -365,6 +388,14 @@ Existencia:
 ```text
 ENT.EntEntIDC = cliente_id
 ENT6.EntLogID = vkm_cuenta_id
+```
+
+Resolución de `codigo_valkimia` en confirmación automática:
+
+```text
+ENT.EntEntIDC = customer_code
+ENT6.EntLogID = vkm_cuenta_id
+ENT.EntID = codigo_valkimia
 ```
 
 Alta:
@@ -454,7 +485,9 @@ Qué hace:
 3. Genera un CSV local de respaldo si `ETL_OV_NEW_CUSTOMER_PATH` está configurado.
 4. Verifica si cada cliente ya existe en VKM.
 5. Si el cliente no existe, lo inserta en SQL Server VKM.
-6. Informa el resultado al sistema del depósito.
+6. Si el cliente ya existe en `ENT/ENT6`, confirma usando `ENT.EntID`.
+7. Si un cliente en `etl_queued` pasa a `INEEst=2`, vuelve a resolver `ENT.EntID` y recién ahí confirma al backend.
+8. Informa el resultado al sistema del depósito.
 
 Ejemplo de uso con scheduler:
 
@@ -672,6 +705,38 @@ Payload por IDs de cola:
 }
 ```
 
+Payload por IDs de cola con `customer_mappings` opcional:
+
+```json
+{
+  "ids": [123, 456],
+  "status": "confirmed",
+  "error_detail": "",
+  "customer_mappings": [
+    {
+      "id": 123,
+      "customer_code": "C001",
+      "codigo_valkimia": "501"
+    },
+    {
+      "id": 456,
+      "customer_code": "C002",
+      "codigo_valkimia": "502"
+    }
+  ]
+}
+```
+
+Reglas operativas:
+
+- `customer_mappings` es opcional y sólo se envía cuando hay filas automáticas confirmadas.
+- Cada mapping incluye `CustomerSyncQueue.id`, el código de cliente normalizado y `codigo_valkimia`.
+- `codigo_valkimia` sale de `ENT.EntID`.
+- El ETL resuelve `ENT.EntID` usando `ENT.EntEntIDC = customer_code` y `ENT6.EntLogID = vkm_cuenta_id`.
+- El backend persiste `customers.codigo_valkimia` antes de marcar la fila como `etl_confirmed`.
+- Una fila no se confirma si `ENT.EntID` todavía no puede resolverse.
+- Las confirmaciones manuales o legacy por `request_id` siguen funcionando sin `customer_mappings`.
+
 ## Estado actual
 
 La conexión a SQL Server/VKM y el alta de clientes están encapsuladas en `src/vkm_client.py`.
@@ -681,6 +746,28 @@ En modo automático real, el ETL consulta el backend, genera respaldo local si c
 En modo `dry-run` automático, el ETL no consulta backend, no genera CSV local, no conecta a VKM y no informa confirmación.
 
 En modo manual con `--csv-path --dry-run`, sólo valida el CSV local.
+
+## Versionado
+
+La fuente de verdad de la version desplegada es `etl_ov/VERSION`.
+
+- Editar solo `VERSION` antes de copiar la carpeta completa `etl_ov/`.
+- `python -m src.main --version` muestra la version efectiva sin tocar backend ni VKM.
+- Si `VERSION` falta, esta vacio o no puede leerse, el ETL sigue ejecutando y usa `unknown`.
+- Cada corrida normal registra `version=<valor>` al inicio y al final.
+
+Comandos utiles desde `etl_ov/`:
+
+```powershell
+type VERSION
+python -m src.main --version
+```
+
+Sugerencia de progresion:
+
+- patch: `1.0.1`
+- feature compatible: `1.1.0`
+- cambio incompatible: `2.0.0`
 
 ## Tests
 

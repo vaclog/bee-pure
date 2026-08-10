@@ -1,4 +1,5 @@
 import csv
+import importlib.util
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -7,7 +8,14 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.csv_reader import BACKUP_HEADERS, read_customers_csv, validate_customer_rows, write_customers_backup_csv
+from src.customer_required_fields import (
+    CUSTOMER_REQUIRED_CANONICAL_FIELDS,
+    CUSTOMER_REQUIRED_BACKEND_FIELDS,
+    CUSTOMER_REQUIRED_EXCEL_FIELDS,
+    CUSTOMER_REQUIRED_ETL_FIELDS,
+    CUSTOMER_REQUIRED_FIELD_ALIASES,
+)
+from src.csv_reader import BACKUP_HEADERS, REQUIRED_HEADERS, read_customers_csv, validate_customer_rows, write_customers_backup_csv
 
 
 def _write_csv(content):
@@ -46,6 +54,9 @@ class CsvReaderTests(unittest.TestCase):
 
         self.assertFalse(result.is_valid)
         self.assertIn("Faltan columnas requeridas", result.errors[0].message)
+
+    def test_required_headers_match_customer_contract(self):
+        self.assertEqual(REQUIRED_HEADERS, CUSTOMER_REQUIRED_ETL_FIELDS)
 
     def test_duplicate_cliente_id(self):
         self.path = _write_csv(
@@ -282,6 +293,52 @@ class CsvReaderTests(unittest.TestCase):
             row = next(reader)
 
         self.assertEqual(row["client_id"], "")
+
+    def test_backend_and_etl_required_customer_contracts_stay_in_parity(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        backend_contract_path = repo_root / "backend" / "hojaruta" / "clientes" / "customer_required_fields.py"
+        spec = importlib.util.spec_from_file_location("backend_customer_required_fields", backend_contract_path)
+        backend_contract = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_contract)
+
+        self.assertEqual(backend_contract.CUSTOMER_REQUIRED_CANONICAL_FIELDS, CUSTOMER_REQUIRED_CANONICAL_FIELDS)
+        self.assertEqual(backend_contract.CUSTOMER_REQUIRED_BACKEND_FIELDS, CUSTOMER_REQUIRED_BACKEND_FIELDS)
+        self.assertEqual(backend_contract.CUSTOMER_REQUIRED_EXCEL_FIELDS, CUSTOMER_REQUIRED_EXCEL_FIELDS)
+        self.assertEqual(backend_contract.CUSTOMER_REQUIRED_ETL_FIELDS, CUSTOMER_REQUIRED_ETL_FIELDS)
+        self.assertEqual(backend_contract.CUSTOMER_REQUIRED_FIELD_ALIASES, CUSTOMER_REQUIRED_FIELD_ALIASES)
+        self.assertEqual(
+            CUSTOMER_REQUIRED_BACKEND_FIELDS,
+            tuple(
+                CUSTOMER_REQUIRED_FIELD_ALIASES[field]["backend"]
+                for field in CUSTOMER_REQUIRED_CANONICAL_FIELDS
+            ),
+        )
+        self.assertEqual(
+            CUSTOMER_REQUIRED_EXCEL_FIELDS,
+            tuple(
+                CUSTOMER_REQUIRED_FIELD_ALIASES[field]["excel"]
+                for field in CUSTOMER_REQUIRED_CANONICAL_FIELDS
+            ),
+        )
+        self.assertEqual(
+            CUSTOMER_REQUIRED_ETL_FIELDS,
+            tuple(
+                CUSTOMER_REQUIRED_FIELD_ALIASES[field]["etl"]
+                for field in CUSTOMER_REQUIRED_CANONICAL_FIELDS
+            ),
+        )
+        self.assertEqual(
+            CUSTOMER_REQUIRED_CANONICAL_FIELDS,
+            ("codigo", "nombre", "direccion", "localidad", "provincia", "codigo_postal"),
+        )
+        self.assertEqual(
+            CUSTOMER_REQUIRED_BACKEND_FIELDS,
+            ("codigo", "nombre", "direccion", "localidad", "provincia", "cp"),
+        )
+        self.assertEqual(
+            CUSTOMER_REQUIRED_ETL_FIELDS,
+            ("cliente_id", "nombre", "direccion", "localidad", "provincia", "codigo_postal"),
+        )
 
 
 if __name__ == "__main__":

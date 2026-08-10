@@ -3,15 +3,12 @@ import csv
 from datetime import datetime
 from pathlib import Path
 
-
-REQUIRED_HEADERS = (
-    "cliente_id",
-    "nombre",
-    "direccion",
-    "localidad",
-    "provincia",
-    "codigo_postal",
+from .customer_required_fields import (
+    CUSTOMER_REQUIRED_ETL_FIELDS,
+    missing_required_customer_fields,
 )
+
+REQUIRED_HEADERS = CUSTOMER_REQUIRED_ETL_FIELDS
 
 BACKUP_HEADERS = (
     "client_id",
@@ -90,9 +87,8 @@ def validate_customer_rows(raw_rows, headers=None):
             else:
                 seen_customer_keys.add(duplicate_key)
 
-        for header in REQUIRED_HEADERS:
-            if not row.get(header):
-                errors.append(RowError(row_number, f"{header} vacio."))
+        for header in missing_required_customer_fields(row, REQUIRED_HEADERS):
+            errors.append(RowError(row_number, f"{header} vacio."))
 
         rows.append(row)
 
